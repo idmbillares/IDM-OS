@@ -21,7 +21,11 @@ import {
   type PinActionState,
 } from "@/app/(dashboard)/security-actions";
 import { AppBrandIcon } from "@/components/branding/app-brand-icon";
-import { tabUnlockStorageKey } from "@/modules/auth/unlock-client";
+import {
+  clearTabUnlockToken,
+  readTabUnlockToken,
+  writeTabUnlockToken,
+} from "@/modules/auth/unlock-client";
 
 const initialState: PinActionState = { message: "", status: "idle" };
 
@@ -43,16 +47,18 @@ export function AppUnlockGate({
   const lastServerTouchRef = useRef(0);
 
   useEffect(() => {
-    const token = window.sessionStorage.getItem(tabUnlockStorageKey);
+    const token = readTabUnlockToken();
     tokenRef.current = token;
-    void verifyTabUnlockAction(token).then((result) => {
-      setConfigured(result.pinConfigured);
-      setStatus(result.unlocked ? "unlocked" : "locked");
-    });
+    void verifyTabUnlockAction(token)
+      .then((result) => {
+        setConfigured(result.pinConfigured);
+        setStatus(result.unlocked ? "unlocked" : "locked");
+      })
+      .catch(() => setStatus("locked"));
   }, []);
 
   const finishUnlock = (token: string) => {
-    window.sessionStorage.setItem(tabUnlockStorageKey, token);
+    writeTabUnlockToken(token);
     tokenRef.current = token;
     lastServerTouchRef.current = Date.now();
     setStatus("unlocked");
@@ -60,7 +66,7 @@ export function AppUnlockGate({
   };
   const lock = useCallback(() => {
     const token = tokenRef.current;
-    window.sessionStorage.removeItem(tabUnlockStorageKey);
+    clearTabUnlockToken();
     tokenRef.current = null;
     setStatus("locked");
     void lockAppAction(token);

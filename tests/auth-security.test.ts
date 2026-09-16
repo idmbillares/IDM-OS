@@ -7,6 +7,11 @@ import {
   type SessionIdentity,
 } from "@/modules/auth/contracts";
 import { MAX_PIN_FAILURES, nextPinFailureState } from "@/modules/auth/pin-policy";
+import {
+  clearTabUnlockToken,
+  readTabUnlockToken,
+  writeTabUnlockToken,
+} from "@/modules/auth/unlock-client";
 
 const identity: SessionIdentity = {
   id: "53db9b21-6763-40b0-86a7-f9f396017dce",
@@ -51,4 +56,27 @@ test("the PIN policy locks exactly on the configured failed attempt", () => {
   const locked = nextPinFailureState(MAX_PIN_FAILURES - 1, now);
   assert.equal(locked.failedAttempts, 0);
   assert.equal(locked.lockedUntil?.getTime(), now.getTime() + 15 * 60 * 1000);
+});
+
+test("tab unlock remains usable when browser session storage is unavailable", () => {
+  const priorWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      get sessionStorage() {
+        throw new Error("Storage access denied");
+      },
+    },
+  });
+
+  try {
+    writeTabUnlockToken("current-tab-token");
+    assert.equal(readTabUnlockToken(), "current-tab-token");
+    clearTabUnlockToken();
+    assert.equal(readTabUnlockToken(), null);
+  } finally {
+    if (priorWindow) Object.defineProperty(globalThis, "window", priorWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
 });

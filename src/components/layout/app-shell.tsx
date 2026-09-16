@@ -226,7 +226,7 @@ export function AppShell({ brandIconUrl, children, session }: AppShellProps) {
 
       const focusableElements = getFocusableElements();
       const first = focusableElements[0];
-      const last = focusableElements.at(-1);
+      const last = focusableElements[focusableElements.length - 1];
 
       if (!first || !last) {
         return;
