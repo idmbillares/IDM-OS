@@ -1,3 +1,5 @@
+import "server-only";
+
 import { randomUUID } from "node:crypto";
 import { pool } from "@/db/client";
 import { ValidationError } from "@/lib/errors";
@@ -52,12 +54,31 @@ async function post(
     movements: Movement[];
   },
   action: string,
+  options: {
+    afterAccountsLocked?: (client: { query: typeof pool.query }) => Promise<void>;
+    resolveMovements?: (client: { query: typeof pool.query }) => Promise<Movement[]>;
+  } = {},
 ) {
   const c = await pool.connect();
   try {
     await c.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
-    for (const m of input.movements) {
-      await account(c, m.accountId);
+    const lockedAccountIds = [
+      ...new Set(input.movements.map(({ accountId }) => accountId)),
+    ].sort();
+    for (const accountId of lockedAccountIds) {
+      await account(c, accountId);
+    }
+    await options.afterAccountsLocked?.(c);
+    const movements = options.resolveMovements
+      ? await options.resolveMovements(c)
+      : input.movements;
+    if (
+      movements.length === 0 ||
+      movements.some(({ accountId }) => !lockedAccountIds.includes(accountId))
+    ) {
+      throw new ValidationError("Los movimientos de la operación no son válidos.");
+    }
+    for (const m of movements) {
       if (m.amountMinor < 0) {
         const b = await balance(c, m.accountId);
         if (b + m.amountMinor < 0)
@@ -81,7 +102,7 @@ async function post(
         actor.id,
       ],
     );
-    for (const m of input.movements)
+    for (const m of movements)
       await c.query(
         "INSERT INTO financial_movements(id,transaction_id,account_id,amount_minor,created_at,created_by_user_id) VALUES($1,$2,$3,$4,$5,$6)",
         [randomUUID(), id, m.accountId, m.amountMinor, now, actor.id],
@@ -100,7 +121,7 @@ async function post(
         JSON.stringify({
           type: input.type,
           source: input.source,
-          movements: input.movements,
+          movements,
         }),
         now,
       ],
@@ -116,28 +137,6 @@ async function post(
 }
 export async function registerOpeningBalance(a: Actor, r: unknown) {
   const i = valid(createOpeningBalanceSchema.safeParse(r));
-  const c = await pool.connect();
-  try {
-    await c.query("BEGIN");
-    await account(c, i.accountId);
-    if (
-      (
-        await c.query(
-          "SELECT 1 FROM financial_transactions t JOIN financial_movements m ON m.transaction_id=t.id WHERE m.account_id=$1 AND t.source='OPENING_BALANCE' AND t.status='POSTED'",
-          [i.accountId],
-        )
-      ).rowCount
-    )
-      throw new ValidationError("Esta cuenta ya tiene un saldo inicial registrado.");
-    await c.query("ROLLBACK");
-  } catch (e) {
-    try {
-      await c.query("ROLLBACK");
-    } catch {}
-    c.release();
-    throw e;
-  }
-  c.release();
   return post(
     a,
     {
@@ -150,6 +149,22 @@ export async function registerOpeningBalance(a: Actor, r: unknown) {
       movements: [{ accountId: i.accountId, amountMinor: i.amountMinor }],
     },
     "financial_transaction.opening_balance_created",
+    {
+      async afterAccountsLocked(client) {
+        if (
+          (
+            await client.query(
+              "SELECT 1 FROM financial_transactions t JOIN financial_movements m ON m.transaction_id=t.id WHERE m.account_id=$1 AND t.source='OPENING_BALANCE' AND t.status='POSTED'",
+              [i.accountId],
+            )
+          ).rowCount
+        ) {
+          throw new ValidationError(
+            "Esta cuenta ya tiene un saldo inicial registrado.",
+          );
+        }
+      },
+    },
   );
 }
 export async function registerIncome(a: Actor, r: unknown) {
@@ -222,37 +237,37 @@ export async function registerTransfer(a: Actor, r: unknown) {
 }
 export async function registerBalanceAdjustment(a: Actor, r: unknown) {
   const i = valid(createBalanceAdjustmentSchema.safeParse(r));
-  const c = await pool.connect();
-  try {
-    await c.query("BEGIN");
-    await account(c, i.accountId);
-    const b = await balance(c, i.accountId);
-    await c.query("ROLLBACK");
-    if (b === i.actualBalanceMinor)
-      throw new ValidationError(
-        "El saldo real coincide con el saldo registrado; no se requiere un ajuste.",
-      );
-    return post(
-      a,
-      {
-        type: "ADJUSTMENT",
-        source: "BALANCE_ADJUSTMENT",
-        description: i.reason,
-        category: "Ajuste de saldo",
-        reference: i.reference,
-        occurredAt: i.occurredAt,
-        movements: [{ accountId: i.accountId, amountMinor: i.actualBalanceMinor - b }],
+  return post(
+    a,
+    {
+      type: "ADJUSTMENT",
+      source: "BALANCE_ADJUSTMENT",
+      description: i.reason,
+      category: "Ajuste de saldo",
+      reference: i.reference,
+      occurredAt: i.occurredAt,
+      // The account id is used to acquire the row lock. The actual amount is
+      // resolved below only after that lock is held.
+      movements: [{ accountId: i.accountId, amountMinor: 0 }],
+    },
+    "financial_transaction.balance_adjustment_created",
+    {
+      async resolveMovements(client) {
+        const currentBalance = await balance(client, i.accountId);
+        if (currentBalance === i.actualBalanceMinor) {
+          throw new ValidationError(
+            "El saldo real coincide con el saldo registrado; no se requiere un ajuste.",
+          );
+        }
+        return [
+          {
+            accountId: i.accountId,
+            amountMinor: i.actualBalanceMinor - currentBalance,
+          },
+        ];
       },
-      "financial_transaction.balance_adjustment_created",
-    );
-  } catch (e) {
-    try {
-      await c.query("ROLLBACK");
-    } catch {}
-    throw e;
-  } finally {
-    c.release();
-  }
+    },
+  );
 }
 export async function voidFinancialTransaction(a: Actor, r: unknown) {
   const i = valid(voidFinancialTransactionSchema.safeParse(r));

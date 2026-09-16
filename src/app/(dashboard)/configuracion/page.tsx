@@ -3,27 +3,17 @@ import { Settings2 } from "lucide-react";
 import { BrandingSettingsPanel } from "@/components/branding/branding-settings-panel";
 import { ProfileSettingsPanel } from "@/components/auth/profile-settings-panel";
 import { PageHeader } from "@/components/ui/page-header";
-import { getAuthProvider } from "@/modules/auth/provider";
+import { requireCurrentSession } from "@/modules/auth/provider";
 import { getBrandingSnapshot } from "@/modules/branding/service";
 import { getOwnProfile } from "@/modules/auth/profile";
 
-async function getAdministratorStatus() {
-  try {
-    const session = await getAuthProvider().getSession();
-
-    return session?.roles.includes("ADMINISTRADOR") ?? false;
-  } catch {
-    return false;
-  }
-}
-
 export default async function ConfigurationPage() {
-  const session = await getAuthProvider().getSession();
-  const [branding, isAdministrator, profile] = await Promise.all([
+  const session = await requireCurrentSession();
+  const [branding, profile] = await Promise.all([
     getBrandingSnapshot(),
-    getAdministratorStatus(),
-    session ? getOwnProfile(session.id) : null,
+    getOwnProfile(session.id),
   ]);
+  const isAdministrator = session.roles.includes("ADMINISTRADOR");
   const iconUrl = `/api/branding/icon?v=${branding.revision}`;
 
   return (

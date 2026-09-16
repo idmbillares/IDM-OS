@@ -1,12 +1,15 @@
+import "server-only";
+
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import dotenv from "dotenv";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
+import { normalizePemCertificate } from "@/lib/server-env";
+
 dotenv.config({
   path: resolve(process.cwd(), ".env.local"),
-  override: true,
   quiet: true,
 });
 dotenv.config({ path: resolve(process.cwd(), ".env"), quiet: true });
@@ -14,15 +17,22 @@ dotenv.config({ path: resolve(process.cwd(), ".env"), quiet: true });
 function createPool() {
   const rawUrl = process.env.POSTGRES_RUNTIME_URL;
   const certificatePath = process.env.POSTGRES_SSL_CERT_FILE;
-  const certificate =
+  const rawCertificate =
     process.env.POSTGRES_SSL_CERT ??
     (certificatePath && existsSync(certificatePath)
       ? readFileSync(certificatePath, "utf8")
       : undefined);
-  if (!rawUrl || !certificate) {
+  if (!rawUrl || !rawCertificate) {
     throw new Error("PostgreSQL runtime seguro no está configurado.");
   }
-  const url = new URL(rawUrl);
+  const certificate = normalizePemCertificate(rawCertificate);
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+    if (!["postgres:", "postgresql:"].includes(url.protocol)) throw new Error();
+  } catch {
+    throw new Error("POSTGRES_RUNTIME_URL no es una URL PostgreSQL válida.");
+  }
   url.searchParams.delete("sslmode");
   return new Pool({
     connectionString: url.toString(),

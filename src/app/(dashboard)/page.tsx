@@ -11,6 +11,7 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { requireCurrentSession } from "@/modules/auth/provider";
 import { getFinancialOverview } from "@/modules/financial/ledger";
 
 const quickLinks = [
@@ -47,6 +48,7 @@ const money = new Intl.NumberFormat("es-CO", {
 });
 
 export default async function DashboardPage() {
+  await requireCurrentSession();
   const overview = await getFinancialOverview();
   return (
     <div className="space-y-9">

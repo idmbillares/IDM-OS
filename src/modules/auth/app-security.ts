@@ -5,14 +5,13 @@ import {
   scrypt as nodeScrypt,
   timingSafeEqual,
 } from "node:crypto";
+import "server-only";
 import { pool } from "@/db/client";
 import { ApplicationLockedError, ValidationError } from "@/lib/errors";
 import { z } from "zod";
+import { nextPinFailureState, PIN_LENGTH } from "./pin-policy";
 
 export const APP_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-const MAX_PIN_FAILURES = 5,
-  PIN_LOCK_DURATION_MS = 15 * 60 * 1000,
-  PIN_LENGTH = 6;
 const pinSchema = z
   .string()
   .regex(
@@ -112,6 +111,8 @@ export async function unlockWithPersonalPin(actor: Actor, raw: unknown) {
   const parsed = pinSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError("Ingresa un PIN válido de 6 dígitos.");
   const client = await pool.connect();
+  let outcome:
+    { status: "success"; token: string } | { status: "rejected"; message: string };
   try {
     await client.query("BEGIN");
     const credential = (
@@ -137,35 +138,42 @@ export async function unlockWithPersonalPin(actor: Actor, raw: unknown) {
       Buffer.from(credential.pin_hash),
     );
     if (!valid) {
-      const fails = credential.failed_attempts + 1,
-        locked =
-          fails >= MAX_PIN_FAILURES
-            ? new Date(now.getTime() + PIN_LOCK_DURATION_MS)
-            : null;
+      const failure = nextPinFailureState(credential.failed_attempts, now);
       await client.query(
         "UPDATE user_pin_credentials SET failed_attempts=$1,locked_until=$2,updated_at=$3 WHERE user_id=$4",
-        [locked ? 0 : fails, locked, now, actor.id],
+        [failure.failedAttempts, failure.lockedUntil, now, actor.id],
       );
       await audit(client, actor.id, "auth.pin_failed", now);
-      throw new ValidationError(
-        locked
+      // A rejected PIN is an expected, auditable state transition. Commit the
+      // failure counter before reporting the validation error to the caller.
+      await client.query("COMMIT");
+      outcome = {
+        status: "rejected",
+        message: failure.lockedUntil
           ? "Demasiados intentos. El PIN está bloqueado durante 15 minutos."
           : "El PIN no es correcto.",
+      };
+    } else {
+      await client.query(
+        "UPDATE user_pin_credentials SET failed_attempts=0,locked_until=NULL,updated_at=$1 WHERE user_id=$2",
+        [now, actor.id],
       );
+      const token = await newUnlock(client, actor, now);
+      await client.query("COMMIT");
+      outcome = { status: "success", token };
     }
-    await client.query(
-      "UPDATE user_pin_credentials SET failed_attempts=0,locked_until=NULL,updated_at=$1 WHERE user_id=$2",
-      [now, actor.id],
-    );
-    const token = await newUnlock(client, actor, now);
-    await client.query("COMMIT");
-    return token;
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
   } finally {
     client.release();
   }
+
+  if (outcome.status === "rejected") {
+    throw new ValidationError(outcome.message);
+  }
+
+  return outcome.token;
 }
 export async function requireUnlockedSession(actor: Actor, raw: unknown) {
   if (typeof raw !== "string" || raw.length < 32) throw new ApplicationLockedError();

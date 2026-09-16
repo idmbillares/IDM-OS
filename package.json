@@ -2,6 +2,9 @@
   "name": "idm-os",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:lan": "next dev --hostname 0.0.0.0",
@@ -9,6 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:generate": "drizzle-kit generate",
@@ -17,13 +21,11 @@
     "db:provision-dev-admin": "tsx src/db/provision-development-admin.ts",
     "db:provision-google-admin": "tsx src/db/provision-google-admin.ts",
     "db:verify-integrity": "node scripts/verify-financial-integrity.mjs",
-    "db:verify-accounts": "tsx scripts/verify-financial-accounts.ts",
-    "db:verify-ledger": "tsx scripts/verify-financial-ledger.ts",
     "db:verify-app-security": "tsx scripts/verify-app-security.ts",
     "db:studio": "drizzle-kit studio",
     "db:postgres:migrate": "tsx scripts/postgres-migrate.ts",
     "db:postgres:import": "tsx scripts/import-sqlite-to-postgres.ts",
-    "db:postgres:verify": "tsx scripts/verify-postgres-migration.ts",
+    "db:postgres:verify-import": "tsx scripts/verify-postgres-migration.ts",
     "db:postgres:verify-ledger": "tsx scripts/verify-postgres-ledger-rules.ts"
   },
   "dependencies": {

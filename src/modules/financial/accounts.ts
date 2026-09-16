@@ -1,3 +1,5 @@
+import "server-only";
+
 import { randomUUID } from "node:crypto";
 import { pool } from "@/db/client";
 import { ValidationError } from "@/lib/errors";

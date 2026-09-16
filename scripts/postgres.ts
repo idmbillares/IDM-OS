@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import dotenv from "dotenv";
 import { Client, type ClientConfig } from "pg";
 
-dotenv.config({ path: resolve(process.cwd(), ".env.local"), override: true });
-dotenv.config({ path: resolve(process.cwd(), ".env") });
+dotenv.config({ path: resolve(process.cwd(), ".env.local"), quiet: true });
+dotenv.config({ path: resolve(process.cwd(), ".env"), quiet: true });
 
 export function postgresConfig(
   urlName: "POSTGRES_RUNTIME_URL" | "POSTGRES_MIGRATIONS_URL",

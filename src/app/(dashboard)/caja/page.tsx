@@ -1,26 +1,16 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { FinancialAccountsPanel } from "@/components/financial/financial-accounts-panel";
 import { FinancialMetrics, LedgerPanel } from "@/components/financial/ledger-panel";
-import { getAuthProvider } from "@/modules/auth/provider";
+import { requireCurrentSession } from "@/modules/auth/provider";
 import { getFinancialOverview } from "@/modules/financial/ledger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function getAdministratorStatus() {
-  try {
-    const session = await getAuthProvider().getSession();
-    return session?.roles.includes("ADMINISTRADOR") ?? false;
-  } catch {
-    return false;
-  }
-}
-
 export default async function CashPage() {
-  const [overview, isAdministrator] = await Promise.all([
-    getFinancialOverview(),
-    getAdministratorStatus(),
-  ]);
+  const session = await requireCurrentSession();
+  const overview = await getFinancialOverview();
+  const isAdministrator = session.roles.includes("ADMINISTRADOR");
 
   return (
     <div className="space-y-8">

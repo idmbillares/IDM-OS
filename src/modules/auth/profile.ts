@@ -1,3 +1,5 @@
+import "server-only";
+
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { pool } from "@/db/client";

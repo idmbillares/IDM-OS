@@ -1,5 +1,7 @@
 import "server-only";
 
+import { redirect } from "next/navigation";
+
 import type { AuthProvider } from "./contracts";
 import { DevelopmentAuthProvider } from "./development-auth";
 import { GoogleAuthProvider } from "./google-auth";
@@ -18,4 +20,15 @@ export function getAuthProvider(): AuthProvider {
   if (mode === "google") return new GoogleAuthProvider();
 
   throw new Error("El modo de autenticación no es válido.");
+}
+
+/**
+ * Authorize inside the page or action that reads protected data. A parent
+ * layout is useful for navigation, but Next.js can render page segments in
+ * parallel and therefore it is not a data-security boundary by itself.
+ */
+export async function requireCurrentSession() {
+  const session = await getAuthProvider().getSession();
+  if (!session) redirect("/acceso");
+  return session;
 }

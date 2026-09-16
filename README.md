@@ -1,37 +1,35 @@
 # IDM OS
 
-Base profesional para el sistema operativo interno de **IDM Fábrica de
-Billares**. Esta primera entrega corresponde exclusivamente a la **Fase 0 —
-Fundamentos**: no incluye operación de caja, ventas, inventario ni datos de la
-empresa.
+Sistema operativo interno de **IDM Fábrica de Billares**. La base incluye
+autenticación Google, protección mediante PIN y el módulo inicial de Caja sobre
+PostgreSQL/Supabase. Los demás módulos continúan como placeholders hasta que su
+fase sea aprobada.
 
 ## Arquitectura
 
 - **Next.js 16, App Router y React 19** para la aplicación web.
 - **TypeScript estricto** y ESLint para mantener contratos claros.
 - **Tailwind CSS 4** y componentes propios reutilizables para la interfaz.
-- **SQLite local + Drizzle ORM** como origen recuperable durante la transición;
-  PostgreSQL/Supabase usa una migración SQL versionada y TLS con CA verificada.
+- **PostgreSQL/Supabase** como única fuente operativa, con TLS y CA verificada.
+  SQLite se conserva únicamente como respaldo histórico y para verificaciones
+  aisladas de recuperación.
 - **Zod** para contratos de entrada de servidor.
-- **AuthProvider** como frontera de autenticación: el adaptador local es solo
-  para desarrollo y el futuro adaptador Google OAuth se implementará sin
-  acoplar servicios ni componentes a un proveedor.
+- **AuthProvider** como frontera de autenticación: Google OAuth opera en
+  producción y el adaptador local está bloqueado cuando `NODE_ENV=production`.
 - La identidad visual usa **blanco, naranja y negro**; los neutros se limitan a
   jerarquía y contraste. El ícono global se sirve dinámicamente con fallback
   seguro al ícono predeterminado.
 
 Se eligió Drizzle porque conserva el esquema y las migraciones SQL como
 artefactos explícitos y revisables, especialmente valiosos para las reglas
-financieras. SQLite es apropiado para desarrollo local, pero no debe usarse
-como base de datos final para una operación real multiusuario. La transición a
-PostgreSQL/Supabase requerirá un baseline de esquema, una migración de datos
-verificada y una ventana de corte; no se debe asumir que las migraciones de
-SQLite se aplican sin cambios a PostgreSQL.
+financieras. Las migraciones heredadas de SQLite y las migraciones activas de
+PostgreSQL permanecen separadas porque sus restricciones no son portables de
+forma automática.
 
 ## Principios de datos incluidos
 
-- Las cuentas financieras son dinámicas y no guardan saldo; su balance futuro
-  se deriva de `financial_movements`.
+- Las cuentas financieras son dinámicas y no guardan saldo; su balance se
+  deriva de `financial_movements`.
 - Los montos se guardan como enteros con signo en la unidad monetaria menor,
   nunca como punto flotante.
 - Una transferencia se representa con movimientos compensados dentro de una
@@ -161,17 +159,17 @@ de entorno. Nunca se ejecuta si `NODE_ENV=production` o si el modo no es
 5. El perfil al final de la barra lateral muestra el usuario y su rol. Usa
    **Cerrar sesión** para borrar la cookie y volver a la pantalla de acceso.
 
-El futuro adaptador Google OAuth seguirá siendo independiente: este comando no
-crea `auth_identities`, y el modo local falla de forma segura si se intenta
+El modo local no crea `auth_identities` y falla de forma segura si se intenta
 usar con `NODE_ENV=production` o fuera de `local-development`.
 
-### Autenticación de desarrollo
+### Autenticación y autorización
 
-Las rutas internas se protegen desde el layout del dashboard: sin una sesión
-válida, `/`, `/caja`, los módulos placeholder y `/configuracion` redirigen a
-`/acceso`. El contrato continúa en `src/modules/auth`; el adaptador local solo
-funciona fuera de producción cuando la cookie firmada y el usuario activo
-aprovisionado son válidos:
+Cada página que consulta información protegida valida la sesión en el servidor
+antes de leer datos; el layout también redirige a `/acceso`, pero no se usa como
+única frontera porque Next.js puede renderizar segmentos en paralelo. El
+contrato continúa en `src/modules/auth`; el adaptador local solo funciona fuera
+de producción cuando la cookie firmada y el usuario activo aprovisionado son
+válidos:
 
 ```dotenv
 IDM_DEV_ACTOR_ID=<uuid>
@@ -268,9 +266,10 @@ movimientos ni auditorías. No debe aplicarse ni reutilizarse sobre una base con
 datos financieros sin una copia de seguridad, una ventana de mantenimiento y
 una estrategia específica de migración.
 
-En desarrollo, los PNG de marca se guardan en `data/branding/`, ignorado por
-Git. Producción debe reemplazar este adaptador local por almacenamiento de
-objetos antes de operar con múltiples instancias.
+Los PNG de marca todavía se guardan en `data/branding/`, ignorado por Git. Ese
+adaptador sirve únicamente para desarrollo: Vercel no ofrece persistencia local,
+por lo que el cambio de ícono debe permanecer deshabilitado operativamente hasta
+migrarlo a almacenamiento de objetos.
 
 ### PostgreSQL / Supabase
 
@@ -286,16 +285,18 @@ fallback seguro.
 ```powershell
 pnpm db:postgres:migrate  # esquema versionado, idempotente por checksum
 pnpm db:postgres:import   # solo si las 12 tablas destino están vacías
-pnpm db:postgres:verify   # conteos, claves, relaciones y saldos derivados
+pnpm db:postgres:verify-import # paridad del corte inicial; no usar tras cambios productivos
 ```
+
+El esquema público habilita RLS sin políticas para `anon` o `authenticated`, y
+revoca permisos directos del Data API; IDM OS accede exclusivamente mediante la
+conexión PostgreSQL privada del servidor.
 
 `data/idm-os.db` nunca se modifica por estos comandos y los respaldos
 consistentes están en `backups/` (ignorados por Git). Para recuperar una
 instalación local, detén el servidor y restaura una copia de respaldo como
 `data/idm-os.db`; no uses esa operación sobre Supabase ni borres datos remotos
-como mecanismo de recuperación. La activación del runtime PostgreSQL requiere
-que todos los servicios de datos síncronos de SQLite hayan sido convertidos a
-transacciones asíncronas de PostgreSQL. El runtime operativo usa
+como mecanismo de recuperación. El runtime operativo usa
 `POSTGRES_RUNTIME_URL`; SQLite queda limitado a respaldo histórico,
 verificaciones de recuperación y migraciones heredadas.
 
@@ -305,9 +306,11 @@ verificaciones de recuperación y migraciones heredadas.
 pnpm format:check
 pnpm lint
 pnpm typecheck
+pnpm test
 pnpm build
 pnpm db:verify-integrity
 pnpm db:verify-app-security
+pnpm db:postgres:verify-ledger
 ```
 
 ## Estructura
@@ -316,7 +319,7 @@ pnpm db:verify-app-security
 src/
   app/                 Rutas App Router, layout y límites de error
   components/          Componentes reutilizables de interfaz
-  db/                  Cliente SQLite, esquema, migración y semilla
+  db/                  Cliente PostgreSQL y soporte de recuperación SQLite
   lib/                 Errores y navegación compartida
   modules/
     auth/              Contrato de autenticación y adaptador local aislado

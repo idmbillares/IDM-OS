@@ -1,7 +1,7 @@
 import { LedgerPanel } from "@/components/financial/ledger-panel";
 import { PageHeader } from "@/components/ui/page-header";
 import { businessDayBounds } from "@/lib/business-time";
-import { getAuthProvider } from "@/modules/auth/provider";
+import { requireCurrentSession } from "@/modules/auth/provider";
 import { getFinancialOverview } from "@/modules/financial/ledger";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ export default async function CashMovementsPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const session = await requireCurrentSession();
   const params = await searchParams;
   const type = value(params, "type");
   const validType = ["INCOME", "EXPENSE", "TRANSFER", "ADJUSTMENT"].includes(type ?? "")
@@ -35,10 +36,7 @@ export default async function CashMovementsPage({
     search: value(params, "q"),
     type: validType,
   };
-  const [overview, session] = await Promise.all([
-    getFinancialOverview(filters),
-    getAuthProvider().getSession(),
-  ]);
+  const overview = await getFinancialOverview(filters);
   return (
     <div className="space-y-8">
       <PageHeader
@@ -48,7 +46,7 @@ export default async function CashMovementsPage({
       />
       <LedgerPanel
         {...overview}
-        isAdministrator={session?.roles.includes("ADMINISTRADOR") ?? false}
+        isAdministrator={session.roles.includes("ADMINISTRADOR")}
         query={new URLSearchParams(
           Object.entries(params).flatMap(([key, item]) =>
             typeof item === "string" ? [[key, item]] : [],
