@@ -11,15 +11,18 @@ export function postgresConfig(
 ): ClientConfig {
   const connectionString = process.env[urlName];
   const certificatePath = process.env.POSTGRES_SSL_CERT_FILE;
-  if (!connectionString || !certificatePath)
-    throw new Error(`${urlName} y POSTGRES_SSL_CERT_FILE son obligatorios.`);
-  if (!existsSync(certificatePath))
-    throw new Error("No se encontró el certificado TLS configurado para PostgreSQL.");
+  const certificate =
+    process.env.POSTGRES_SSL_CERT ??
+    (certificatePath && existsSync(certificatePath)
+      ? readFileSync(certificatePath, "utf8")
+      : undefined);
+  if (!connectionString || !certificate)
+    throw new Error(`${urlName} y un certificado TLS son obligatorios.`);
   const url = new URL(connectionString);
   url.searchParams.delete("sslmode");
   return {
     connectionString: url.toString(),
-    ssl: { ca: readFileSync(certificatePath, "utf8"), rejectUnauthorized: true },
+    ssl: { ca: certificate, rejectUnauthorized: true },
   };
 }
 
