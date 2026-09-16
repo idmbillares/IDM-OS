@@ -27,6 +27,12 @@ const googleDiscoveryFetch: typeof fetch = async (input, init) => {
 };
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
+  // Vercel forwards the canonical request host to this Route Handler. Do not
+  // rely on platform-specific environment inference for this security check.
+  trustHost: true,
+  // Keep the production signing key explicit instead of relying on automatic
+  // environment alias resolution at runtime.
+  secret: process.env.AUTH_SECRET,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
