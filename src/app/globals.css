@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+:root {
+  --idm-white: #ffffff;
+  --idm-black: #111111;
+  --idm-orange: #f97316;
+  --idm-orange-strong: #c2410c;
+  --idm-orange-soft: #fff7ed;
+  --background: var(--idm-white);
+  --foreground: var(--idm-black);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-idm-white: var(--idm-white);
+  --color-idm-black: var(--idm-black);
+  --color-idm-orange: var(--idm-orange);
+  --color-idm-orange-strong: var(--idm-orange-strong);
+  --color-idm-orange-soft: var(--idm-orange-soft);
+}
+
+* {
+  border-color: rgb(228 228 231);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: #fed7aa;
+  color: #431407;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 0.75rem;
+  left: 0.75rem;
+  transform: translateY(-180%);
+  border-radius: 0.5rem;
+  background: #18181b;
+  padding: 0.75rem 1rem;
+  color: #fff;
+  transition: transform 150ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid #ea580c;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789497627115,
+      "tag": "0000_fine_hellfire_club",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789499631693,
+      "tag": "0001_rare_talos",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789500480432,
+      "tag": "0002_enforce_same_currency_transfers",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789501349655,
+      "tag": "0003_colossal_vision",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789504550153,
+      "tag": "0004_rich_felicia_hardy",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789509934774,
+      "tag": "0005_zippy_clint_barton",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789529357057,
+      "tag": "0006_wonderful_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789532356513,
+      "tag": "0007_uneven_johnny_blaze",
+      "breakpoints": true
+    }
+  ]
+}
