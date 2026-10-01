@@ -11,10 +11,16 @@ export function requireCanonicalAuthUrl() {
 
   try {
     const url = new URL(value);
-    const productionRequiresHttps = process.env.NODE_ENV === "production";
+    // `next build` also sets NODE_ENV=production. Keep localhost available for
+    // a developer's local build, but never let it become a deployed origin.
+    const isProductionRuntime =
+      process.env.NODE_ENV === "production" &&
+      process.env.NEXT_PHASE !== "phase-production-build";
+    const productionRequiresHttps =
+      isProductionRuntime || process.env.VERCEL_ENV === "production";
     const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
     if (
-      (productionRequiresHttps && !isLocalhost && url.protocol !== "https:") ||
+      (productionRequiresHttps && (isLocalhost || url.protocol !== "https:")) ||
       url.pathname !== "/" ||
       value !== url.origin
     )
@@ -22,7 +28,7 @@ export function requireCanonicalAuthUrl() {
     return url.origin;
   } catch {
     throw new Error(
-      "AUTH_URL debe ser el origen canónico de IDM OS, sin ruta ni barra final.",
+      "AUTH_URL debe ser el origen canónico HTTPS de IDM OS, sin ruta ni barra final; localhost solo se admite para desarrollo local.",
     );
   }
 }

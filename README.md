@@ -97,9 +97,9 @@ usan controles HTML estándar y diseño responsive.
 
 Google OAuth **no puede completar de forma segura usando una IP LAN HTTP**:
 Google exige HTTPS y no permite IPs sin procesar como redirect URI, salvo
-`localhost`. Para probar OAuth desde el móvil usa una URL HTTPS estable, por
-ejemplo mediante un túnel seguro configurado manualmente. Define esa URL en
-`AUTH_URL` y en Google Cloud agrega exactamente:
+`localhost`. Para producción y pruebas desde móviles usa la URL HTTPS pública
+y estable del proyecto de Vercel. Define esa URL en `AUTH_URL` y en Google
+Cloud agrega exactamente:
 
 - Authorized JavaScript origin: `https://tu-url-https`
 - Authorized redirect URI: `https://tu-url-https/api/auth/callback/google`
@@ -208,9 +208,11 @@ normalizados. Las cuentas no persisten saldo: Caja lo deriva exclusivamente de
 ## Google OAuth y Caja operativa
 
 Para activar Google OAuth configura `IDM_AUTH_MODE=google`, `GOOGLE_CLIENT_ID`,
-`GOOGLE_CLIENT_SECRET` y `AUTH_SECRET` fuera de Git. En Google Cloud registra
-como callback local `http://localhost:3000/api/auth/callback/google`. Antes del
-primer acceso, configura `IDM_ADMIN_EMAIL` con el correo real autorizado y
+`GOOGLE_CLIENT_SECRET`, `AUTH_SECRET` y la URL pública HTTPS en `AUTH_URL`
+fuera de Git. En Google Cloud registra
+`https://<dominio-publico>/api/auth/callback/google` y, solo para desarrollo
+local, puede coexistir `http://localhost:3000/api/auth/callback/google`. Antes
+del primer acceso, configura `IDM_ADMIN_EMAIL` con el correo real autorizado y
 ejecuta `pnpm db:provision-google-admin`; los roles continúan en IDM OS, nunca
 en Google. El modo `local-development` sigue disponible solo para desarrollo.
 

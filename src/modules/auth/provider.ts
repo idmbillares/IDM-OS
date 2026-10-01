@@ -14,6 +14,14 @@ export function getAuthProvider(): AuthProvider {
   const mode = process.env.IDM_AUTH_MODE ?? "local-development";
 
   if (mode === "local-development") {
+    if (
+      process.env.NODE_ENV === "production" &&
+      process.env.NEXT_PHASE !== "phase-production-build"
+    ) {
+      throw new Error(
+        "El adaptador de autenticación local no puede usarse en producción.",
+      );
+    }
     return new DevelopmentAuthProvider();
   }
 
