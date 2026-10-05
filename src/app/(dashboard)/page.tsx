@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { requireCurrentSession } from "@/modules/auth/provider";
 import { getFinancialOverview } from "@/modules/financial/ledger";
+import { canReadCash } from "@/modules/financial/permissions";
 
 const quickLinks = [
   {
@@ -48,8 +49,8 @@ const money = new Intl.NumberFormat("es-CO", {
 });
 
 export default async function DashboardPage() {
-  await requireCurrentSession();
-  const overview = await getFinancialOverview();
+  const session = await requireCurrentSession();
+  const overview = canReadCash(session) ? await getFinancialOverview() : null;
   return (
     <div className="space-y-9">
       <PageHeader
@@ -72,24 +73,26 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ["Saldo disponible", overview.totalAvailableMinor],
-          ["Ingresos del mes", overview.incomeMinor],
-          ["Egresos del mes", overview.expenseMinor],
-          ["Flujo neto del mes", overview.incomeMinor - overview.expenseMinor],
-        ].map(([label, value]) => (
-          <div
-            className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
-            key={label}
-          >
-            <p className="text-sm text-zinc-600">{label}</p>
-            <p className="mt-2 text-2xl font-semibold text-zinc-950">
-              {money.format(value as number)}
-            </p>
-          </div>
-        ))}
-      </section>
+      {overview ? (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ["Saldo disponible", overview.totalAvailableMinor],
+            ["Ingresos del mes", overview.incomeMinor],
+            ["Egresos del mes", overview.expenseMinor],
+            ["Flujo neto del mes", overview.flowNetMinor],
+          ].map(([label, value]) => (
+            <div
+              className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+              key={label}
+            >
+              <p className="text-sm text-zinc-600">{label}</p>
+              <p className="mt-2 text-2xl font-semibold text-zinc-950">
+                {money.format(value as number)}
+              </p>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <section aria-labelledby="quick-access-heading">
         <div className="flex items-center justify-between gap-4">

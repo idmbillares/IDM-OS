@@ -268,10 +268,72 @@ movimientos ni auditorías. No debe aplicarse ni reutilizarse sobre una base con
 datos financieros sin una copia de seguridad, una ventana de mantenimiento y
 una estrategia específica de migración.
 
-Los PNG de marca todavía se guardan en `data/branding/`, ignorado por Git. Ese
-adaptador sirve únicamente para desarrollo: Vercel no ofrece persistencia local,
-por lo que el cambio de ícono debe permanecer deshabilitado operativamente hasta
-migrarlo a almacenamiento de objetos.
+Los PNG nuevos de marca se guardan como `bytea` en `branding_asset_contents`,
+con metadata en `branding_assets`. Se eligió PostgreSQL porque los íconos están
+limitados a 512 KB y así bytes, referencia y auditoría se confirman juntos, sin
+dependencias ni un segundo servicio de almacenamiento. Sobreviven a reinicios
+y despliegues de Vercel. La lectura conserva un fallback para activos antiguos
+de `data/branding/`; volver a subir el mismo archivo incorpora sus bytes a
+PostgreSQL. Restaurar el ícono predeterminado conserva activos y auditorías.
+Los PNG deben estar completos, cuadrados, con CRC y raster válidos (incluido
+Adam7) y dimensiones máximas de 512 × 512. El scope actual sigue siendo la aplicación
+global (`default`); la separación por empresa requiere un modelo futuro explícito.
+
+### Auditoría y operación de Caja — 5 de octubre de 2026
+
+El historial consulta las operaciones y sus asientos reales; cuentas, indicadores
+y resultados se leen en una misma instantánea PostgreSQL. La implementación
+anterior devolvía un historial vacío fijo aunque el ledger afectara los saldos.
+Los saldos siguen derivados del ledger: no hay una columna de saldo para actualizar
+sin asientos. `pnpm db:verify-cash` reconcilia saldo inicial, ingresos, egresos,
+transferencias y ajustes (incluidos reversos), y detecta inconsistencias de actores,
+transferencias, saldos iniciales y anulaciones.
+
+Cada formulario financiero genera una clave UUID que conserva durante el intento.
+El servidor serializa esa clave, compara el contenido y devuelve la misma operación
+al reintentar; la clave única, movimientos y auditoría se confirman juntos. Los
+escritores bloquean cuentas en orden estable bajo `READ COMMITTED`, para consultar
+el saldo confirmado por el escritor anterior. El trigger de publicación también
+comprueba saldo no negativo, forma de los asientos, actor y rango entero seguro.
+No se habilitan sobregiros ni cruces de monedas.
+
+Las transferencias siguen siendo una transacción con dos asientos de igual valor
+y signo opuesto. Su identificador relaciona ambos; no afectan ingresos ni egresos.
+Las anulaciones conservan el original y publican una compensación fechada en el
+día de la anulación, con motivo y actor; rechazan saldo negativo y la anulación
+de otra compensación. Repetir la misma anulación devuelve el reverso existente.
+Los filtros cubren días completos de `America/Bogota`; no hay filtros por defecto.
+
+La política vigente es conservadora: `ADMINISTRADOR` registra operaciones, ajustes,
+anulaciones y cambios de cuenta/marca; `CAJA_SECRETARIA` y `CONTADORA` pueden leer
+Caja. `PRODUCCION` no accede a datos financieros. No existe aún una política de
+egresos autorizados para secretaria ni exportación de Caja; no se concedieron
+permisos de escritura sin ese modelo. La unidad existente de Caja es el peso COP
+entero, sin decimales; se conserva para no reescalar los importes históricos.
+
+La migración aditiva `0003_cash_integrity_branding.sql` no reescribe datos históricos
+y también corrige `idm_migration_mode()` para devolver `false` cuando no está
+configurado, garantizando el bloqueo append-only de auditorías y activos.
+
+Pruebas explícitas, con fixtures solamente en esquemas desechables separados:
+
+```powershell
+pnpm test                 # validaciones y permisos; sin fixtures operativos
+pnpm test:cash:postgres   # integración real en esquema aislado; limpieza al finalizar
+```
+
+Las pruebas de integración nunca crean movimientos en el esquema operativo
+`public`. La suite A–G contrasta exactamente 500.000 de ingreso, 200.000 de
+egreso y 100.000 de transferencia. La validación de sesiones y dispositivos
+reales se hace en producción con una sesión autorizada, sin fabricar datos.
+
+El favicon usa la revisión de marca igual que la navegación. El endpoint público
+del ícono responde sin caché y con `X-IDM-Release` (commit Vercel) y
+`X-IDM-Database-Identity` (hash únicamente de host, usuario/proyecto y nombre de
+base, sin contraseña ni parámetros). Esto permite contrastar despliegue y destino
+con la configuración local sin revelar credenciales. Los errores de operaciones
+se registran como JSON con actor, operación, fecha, código y correlación, sin
+volcar SQL, mensajes del motor, formularios ni secretos.
 
 ### PostgreSQL / Supabase
 

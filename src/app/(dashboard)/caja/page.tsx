@@ -3,12 +3,15 @@ import { FinancialAccountsPanel } from "@/components/financial/financial-account
 import { FinancialMetrics, LedgerPanel } from "@/components/financial/ledger-panel";
 import { requireCurrentSession } from "@/modules/auth/provider";
 import { getFinancialOverview } from "@/modules/financial/ledger";
+import Link from "next/link";
+import { assertCashRead } from "@/modules/financial/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function CashPage() {
   const session = await requireCurrentSession();
+  assertCashRead(session);
   const overview = await getFinancialOverview();
   const isAdministrator = session.roles.includes("ADMINISTRADOR");
 
@@ -19,21 +22,31 @@ export default async function CashPage() {
         eyebrow="Operación financiera"
         title="Caja"
       />
+      {isAdministrator ? (
+        <Link
+          href="/configuracion#marca"
+          className="inline-flex min-h-11 items-center text-sm font-semibold text-orange-800"
+        >
+          Cambiar logo de IDM OS →
+        </Link>
+      ) : null}
       <FinancialMetrics
         expenseMinor={overview.expenseMinor}
         incomeMinor={overview.incomeMinor}
+        flowNetMinor={overview.flowNetMinor}
         totalAvailableMinor={overview.totalAvailableMinor}
-      />
-      <FinancialAccountsPanel
-        accounts={overview.accounts}
-        isAdministrator={isAdministrator}
       />
       <LedgerPanel
         {...overview}
         isAdministrator={isAdministrator}
         query=""
         showMetrics={false}
-      />
+      >
+        <FinancialAccountsPanel
+          accounts={overview.accounts}
+          isAdministrator={isAdministrator}
+        />
+      </LedgerPanel>
     </div>
   );
 }

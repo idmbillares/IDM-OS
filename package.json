@@ -26,7 +26,9 @@
     "db:postgres:migrate": "tsx scripts/postgres-migrate.ts",
     "db:postgres:import": "tsx scripts/import-sqlite-to-postgres.ts",
     "db:postgres:verify-import": "tsx scripts/verify-postgres-migration.ts",
-    "db:postgres:verify-ledger": "tsx scripts/verify-postgres-ledger-rules.ts"
+    "db:postgres:verify-ledger": "tsx scripts/verify-postgres-ledger-rules.ts",
+    "db:verify-cash": "tsx scripts/verify-cash-reconciliation.ts",
+    "test:cash:postgres": "node scripts/test-cash-postgres.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -1,17 +1,14 @@
 import { LedgerPanel } from "@/components/financial/ledger-panel";
 import { PageHeader } from "@/components/ui/page-header";
-import { businessDayBounds } from "@/lib/business-time";
+import { parseHistoryQuery } from "@/modules/financial/history-query";
 import { requireCurrentSession } from "@/modules/auth/provider";
 import { getFinancialOverview } from "@/modules/financial/ledger";
+import { assertCashRead } from "@/modules/financial/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-function value(params: Record<string, string | string[] | undefined>, key: string) {
-  const item = params[key];
-  return typeof item === "string" ? item : undefined;
-}
 
 export default async function CashMovementsPage({
   searchParams,
@@ -19,23 +16,9 @@ export default async function CashMovementsPage({
   searchParams: SearchParams;
 }) {
   const session = await requireCurrentSession();
+  assertCashRead(session);
   const params = await searchParams;
-  const type = value(params, "type");
-  const validType = ["INCOME", "EXPENSE", "TRANSFER", "ADJUSTMENT"].includes(type ?? "")
-    ? (type as "INCOME" | "EXPENSE" | "TRANSFER" | "ADJUSTMENT")
-    : undefined;
-  const fromBounds = businessDayBounds(value(params, "from") ?? "");
-  const toBounds = businessDayBounds(value(params, "to") ?? "");
-  const requestedPage = Number(value(params, "page"));
-  const filters = {
-    accountId: value(params, "account"),
-    category: value(params, "category"),
-    dateFrom: fromBounds?.start,
-    dateTo: toBounds?.end,
-    page: Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1,
-    search: value(params, "q"),
-    type: validType,
-  };
+  const { filters, query, error } = parseHistoryQuery(params);
   const overview = await getFinancialOverview(filters);
   return (
     <div className="space-y-8">
@@ -44,14 +27,18 @@ export default async function CashMovementsPage({
         title="Movimientos"
         description="Consulta, filtra y audita todos los movimientos publicados del ledger."
       />
+      {error ? (
+        <p
+          role="alert"
+          className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900"
+        >
+          {error}
+        </p>
+      ) : null}
       <LedgerPanel
         {...overview}
         isAdministrator={session.roles.includes("ADMINISTRADOR")}
-        query={new URLSearchParams(
-          Object.entries(params).flatMap(([key, item]) =>
-            typeof item === "string" ? [[key, item]] : [],
-          ),
-        ).toString()}
+        query={query}
         showHistory
       />
     </div>

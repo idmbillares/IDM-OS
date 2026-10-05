@@ -5,12 +5,20 @@ import {
   ArrowLeftRight,
   ArrowUpRight,
   CircleDollarSign,
-  Plus,
+  Flag,
+  SlidersHorizontal,
   Search,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useActionState,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -25,7 +33,11 @@ import {
 import { CopInput } from "@/components/financial/cop-input";
 import { TabUnlockField } from "@/components/auth/tab-unlock-field";
 import { Toast, type ToastNotice } from "@/components/ui/toast";
-import { businessToday, formatBusinessDate } from "@/lib/business-time";
+import {
+  businessToday,
+  formatBusinessDate,
+  formatBusinessDateTime,
+} from "@/lib/business-time";
 import { financialCategorySuggestions } from "@/modules/financial/categories";
 import { formatCop } from "@/modules/financial/money";
 
@@ -51,6 +63,10 @@ type Recent = {
   accountNames: string | null;
   userName: string | null;
   voidReason: string | null;
+  createdAt: Date;
+  voidedAt: Date | null;
+  voidedByName: string | null;
+  reversalOfTransactionId: string | null;
 };
 type Mode = "adjustment" | "income" | "expense" | "opening" | "transfer" | null;
 const initial: LedgerActionState = { message: "", status: "idle" };
@@ -67,25 +83,35 @@ export function LedgerPanel({
   totalAvailableMinor,
   incomeMinor,
   expenseMinor,
+  flowNetMinor,
+  period,
   recent,
   history,
   isAdministrator,
   query,
   showMetrics = true,
   showHistory = false,
+  children,
 }: {
   accounts: Account[];
   totalAvailableMinor: number;
   incomeMinor: number;
   expenseMinor: number;
+  flowNetMinor: number;
+  period: { start: Date; end: Date };
   recent: Recent[];
-  history: { page: number; pageSize: number; total: number };
+  history: { page: number; pageSize: number; total: number; totalAll: number };
   isAdministrator: boolean;
   query: string;
   showMetrics?: boolean;
   showHistory?: boolean;
+  children?: ReactNode;
 }) {
   const router = useRouter();
+  const [requestKey, setRequestKey] = useState("");
+  const submitting = useRef(false);
+  const voidSubmitting = useRef(false);
+  const filters = new URLSearchParams(query);
   const [mode, setMode] = useState<Mode>(null);
   const [voiding, setVoiding] = useState<string | null>(null);
   const [notice, setNotice] = useState<ToastNotice | null>(null);
@@ -94,15 +120,36 @@ export function LedgerPanel({
   const handledOperationState = useRef<LedgerActionState | null>(null);
   const handledVoidState = useRef<LedgerActionState | null>(null);
   const [transferOriginId, setTransferOriginId] = useState("");
-  const [incomeState, incomeForm] = useActionState(incomeAction, initial);
-  const [expenseState, expenseForm] = useActionState(expenseAction, initial);
-  const [openingState, openingForm] = useActionState(openingBalanceAction, initial);
-  const [transferState, transferForm] = useActionState(transferAction, initial);
-  const [adjustmentState, adjustmentForm] = useActionState(
+  const [incomeState, incomeForm, incomePending] = useActionState(
+    incomeAction,
+    initial,
+  );
+  const [expenseState, expenseForm, expensePending] = useActionState(
+    expenseAction,
+    initial,
+  );
+  const [openingState, openingForm, openingPending] = useActionState(
+    openingBalanceAction,
+    initial,
+  );
+  const [transferState, transferForm, transferPending] = useActionState(
+    transferAction,
+    initial,
+  );
+  const [adjustmentState, adjustmentForm, adjustmentPending] = useActionState(
     balanceAdjustmentAction,
     initial,
   );
-  const [voidState, voidForm] = useActionState(voidTransactionAction, initial);
+  const [voidState, voidForm, voidPending] = useActionState(
+    voidTransactionAction,
+    initial,
+  );
+  const isPending =
+    incomePending ||
+    expensePending ||
+    openingPending ||
+    transferPending ||
+    adjustmentPending;
   const state =
     mode === "income"
       ? incomeState
@@ -124,13 +171,15 @@ export function LedgerPanel({
   const today = businessToday();
   useEffect(() => {
     if (
+      isPending ||
       !submittedMode ||
       state.status === "idle" ||
       handledOperationState.current === state
     )
       return;
-    handledOperationState.current = state;
     const timer = window.setTimeout(() => {
+      handledOperationState.current = state;
+      submitting.current = false;
       setNotice({
         message: state.message,
         status: state.status === "success" ? "success" : "error",
@@ -141,16 +190,18 @@ export function LedgerPanel({
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [router, state, submittedMode]);
+  }, [router, state, submittedMode, isPending]);
   useEffect(() => {
     if (
+      voidPending ||
       !voidSubmitted ||
       voidState.status === "idle" ||
       handledVoidState.current === voidState
     )
       return;
-    handledVoidState.current = voidState;
     const timer = window.setTimeout(() => {
+      handledVoidState.current = voidState;
+      voidSubmitting.current = false;
       setNotice({
         message: voidState.message,
         status: voidState.status === "success" ? "success" : "error",
@@ -161,7 +212,7 @@ export function LedgerPanel({
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [router, voidState, voidSubmitted]);
+  }, [router, voidState, voidSubmitted, voidPending]);
   const formAction =
     mode === "income"
       ? incomeForm
@@ -173,6 +224,8 @@ export function LedgerPanel({
             ? adjustmentForm
             : transferForm;
   const openMode = (next: Exclude<Mode, null>) => {
+    if (isPending || submitting.current) return;
+    setRequestKey(crypto.randomUUID());
     setNotice(null);
     setSubmittedMode(null);
     if (next === "transfer") setTransferOriginId("");
@@ -184,6 +237,7 @@ export function LedgerPanel({
         <FinancialMetrics
           totalAvailableMinor={totalAvailableMinor}
           incomeMinor={incomeMinor}
+          flowNetMinor={flowNetMinor}
           expenseMinor={expenseMinor}
         />
       ) : null}
@@ -194,34 +248,47 @@ export function LedgerPanel({
           autenticado.
         </p>
         {isAdministrator ? (
-          <div className="mt-5 flex flex-wrap gap-3">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Action
-              icon={ArrowUpRight}
+              icon={ArrowDownLeft}
+              tone="income"
+              description="Recibir dinero en una cuenta"
+              disabled={isPending}
               label="Registrar ingreso"
               active={mode === "income"}
               onClick={() => openMode("income")}
             />
             <Action
-              icon={ArrowDownLeft}
+              icon={ArrowUpRight}
+              tone="expense"
+              description="Pagar un gasto de la empresa"
+              disabled={isPending}
               label="Registrar egreso"
               active={mode === "expense"}
               onClick={() => openMode("expense")}
             />
             <Action
               icon={ArrowLeftRight}
+              tone="transfer"
+              description="Mover dinero entre tus cuentas"
+              disabled={isPending}
               label="Transferir dinero"
               active={mode === "transfer"}
               onClick={() => openMode("transfer")}
             />
             <Action
-              icon={Plus}
+              icon={Flag}
+              description="Registrar el punto de partida"
+              disabled={isPending}
               label="Registrar saldo inicial"
               active={mode === "opening"}
               onClick={() => openMode("opening")}
             />
             <Action
               active={mode === "adjustment"}
-              icon={CircleDollarSign}
+              icon={SlidersHorizontal}
+              description="Administración · requiere motivo"
+              disabled={isPending}
               label="Ajustar saldo"
               onClick={() => openMode("adjustment")}
               tone="caution"
@@ -236,21 +303,35 @@ export function LedgerPanel({
           <AdjustmentForm
             accounts={active}
             formAction={formAction}
+            idempotencyKey={requestKey}
+            isPending={isPending}
             onSubmit={() => {
+              if (submitting.current) return false;
+              submitting.current = true;
+              handledOperationState.current = state;
               setNotice(null);
               setSubmittedMode("adjustment");
+              return true;
             }}
             today={today}
           />
         ) : mode ? (
           <form
             action={formAction}
-            onSubmit={() => {
+            key={requestKey}
+            onSubmit={(event) => {
+              if (submitting.current) {
+                event.preventDefault();
+                return;
+              }
+              submitting.current = true;
+              handledOperationState.current = state;
               setNotice(null);
               setSubmittedMode(mode);
             }}
             className="mt-6 grid gap-4 border-t border-zinc-100 pt-6 sm:grid-cols-2"
           >
+            <input name="idempotencyKey" type="hidden" value={requestKey} />
             <TabUnlockField />
             <div className="sm:col-span-2">
               <h3 className="font-semibold text-zinc-950">
@@ -330,12 +411,14 @@ export function LedgerPanel({
             <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
               <button
                 className="min-h-11 rounded-lg bg-orange-700 px-4 text-sm font-semibold text-white hover:bg-orange-800"
+                disabled={isPending}
                 type="submit"
               >
-                Confirmar y publicar
+                {isPending ? "Guardando…" : "Confirmar y publicar"}
               </button>
               <button
                 className="min-h-11 rounded-lg px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+                disabled={isPending}
                 onClick={() => setMode(null)}
                 type="button"
               >
@@ -346,38 +429,60 @@ export function LedgerPanel({
           </form>
         ) : null}
       </section>
+      {children}
       {showHistory ? (
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
           <h2 className="text-xl font-semibold text-zinc-950">
             Historial de movimientos
           </h2>
           <p className="mt-1 text-sm text-zinc-600">
-            {history.total} operación{history.total === 1 ? "" : "es"}; se muestran de
-            25 en 25.
+            {history.totalAll === 0
+              ? "0 operaciones registradas."
+              : `${history.total} ${history.total === 1 ? "resultado" : "resultados"} de ${history.totalAll} operaciones registradas; se muestran de 25 en 25.`}
+          </p>
+          <p className="mt-2 text-xs text-zinc-600">
+            Los indicadores corresponden al mes:{" "}
+            {formatBusinessDate(new Date(period.start))}–
+            {formatBusinessDate(new Date(period.end))}. El historial muestra todas las
+            fechas, salvo los filtros visibles. Zona horaria: America/Bogota.
           </p>
           <form
             action="/caja/movimientos"
+            key={query}
             className="mt-5 grid gap-3 rounded-xl bg-zinc-50 p-4 sm:grid-cols-2 lg:grid-cols-5"
           >
-            <Filter label="Desde" name="from" type="date" />
-            <Filter label="Hasta" name="to" type="date" />
+            <Filter
+              label="Desde"
+              name="from"
+              type="date"
+              value={filters.get("from") ?? ""}
+            />
+            <Filter
+              label="Hasta"
+              name="to"
+              type="date"
+              value={filters.get("to") ?? ""}
+            />
             <label className="text-xs font-semibold text-zinc-700">
               Tipo
               <select
                 className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
+                defaultValue={filters.get("type") ?? ""}
                 name="type"
               >
                 <option value="">Todos</option>
                 <option value="INCOME">Ingresos</option>
                 <option value="EXPENSE">Egresos</option>
                 <option value="TRANSFER">Transferencias</option>
-                <option value="ADJUSTMENT">Ajustes / saldo inicial</option>
+                <option value="ADJUSTMENT">Ajustes</option>
+                <option value="OPENING_BALANCE">Saldo inicial</option>
               </select>
             </label>
             <label className="text-xs font-semibold text-zinc-700">
               Cuenta
               <select
                 className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
+                defaultValue={filters.get("account") ?? ""}
                 name="account"
               >
                 <option value="">Todas</option>
@@ -388,22 +493,35 @@ export function LedgerPanel({
                 ))}
               </select>
             </label>
-            <Filter label="Categoría" name="category" placeholder="Categoría exacta" />
+            <Filter
+              label="Categoría"
+              name="category"
+              placeholder="Parte de la categoría"
+              value={filters.get("category") ?? ""}
+            />
             <label className="text-xs font-semibold text-zinc-700 sm:col-span-2 lg:col-span-4">
               Buscar descripción o referencia
               <input
                 className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
+                defaultValue={filters.get("q") ?? ""}
                 name="q"
                 placeholder="Buscar"
               />
             </label>
             <button
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-3 text-sm font-semibold text-white"
+              disabled={isPending}
               type="submit"
             >
               <Search className="size-4" />
               Filtrar
             </button>
+            <Link
+              href="/caja/movimientos"
+              className="text-sm font-semibold text-orange-800"
+            >
+              Limpiar filtros
+            </Link>
           </form>
           {recent.length ? (
             <div className="mt-5 divide-y divide-zinc-100">
@@ -414,8 +532,13 @@ export function LedgerPanel({
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-zinc-950">{label(movement)}</p>
                         <span className="rounded-full border border-zinc-300 px-2 py-0.5 text-xs font-semibold text-zinc-700">
-                          {formatBusinessDate(new Date(movement.occurredAt))}
+                          {formatBusinessDateTime(new Date(movement.occurredAt))}
                         </span>
+                        {movement.status === "POSTED" ? (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                            ACTIVA
+                          </span>
+                        ) : null}
                         {movement.status === "VOIDED" ? (
                           <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-900">
                             ANULADA
@@ -426,14 +549,25 @@ export function LedgerPanel({
                         {movement.description || "Sin descripción"}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
+                        Registro: {formatBusinessDateTime(new Date(movement.createdAt))}{" "}
+                        · ID: {movement.id}
+                        {movement.reversalOfTransactionId
+                          ? ` · Reverso de ${movement.reversalOfTransactionId}`
+                          : ""}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
                         {movement.accountNames || "Sin cuenta"} ·{" "}
                         {movement.category || "Sin categoría"} ·{" "}
                         {movement.reference || "Sin referencia"} · Registró:{" "}
-                        {movement.userName || "Sistema"}
+                        {movement.userName || "Usuario no identificado"}
                       </p>
                       {movement.status === "VOIDED" ? (
                         <p className="mt-1 text-xs font-medium text-orange-800">
-                          Motivo: {movement.voidReason}
+                          Anuló: {movement.voidedByName || "Usuario no identificado"}
+                          {movement.voidedAt
+                            ? ` · ${formatBusinessDateTime(new Date(movement.voidedAt))}`
+                            : ""}{" "}
+                          · Motivo: {movement.voidReason}
                         </p>
                       ) : null}
                     </div>
@@ -456,6 +590,7 @@ export function LedgerPanel({
                       movement.source !== "VOID_REVERSAL" ? (
                         <button
                           className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-zinc-300 px-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          disabled={voidPending}
                           onClick={() => {
                             setNotice(null);
                             setVoidSubmitted(false);
@@ -472,7 +607,13 @@ export function LedgerPanel({
                   {voiding === movement.id ? (
                     <form
                       action={voidForm}
-                      onSubmit={() => {
+                      onSubmit={(event) => {
+                        if (voidSubmitting.current) {
+                          event.preventDefault();
+                          return;
+                        }
+                        voidSubmitting.current = true;
+                        handledVoidState.current = voidState;
                         setNotice(null);
                         setVoidSubmitted(true);
                       }}
@@ -489,12 +630,14 @@ export function LedgerPanel({
                       />
                       <button
                         className="min-h-10 rounded-lg bg-orange-700 px-3 text-sm font-semibold text-white"
+                        disabled={voidPending}
                         type="submit"
                       >
-                        Confirmar anulación
+                        {voidPending ? "Anulando…" : "Confirmar anulación"}
                       </button>
                       <button
                         className="min-h-10 px-2 text-sm font-semibold"
+                        disabled={voidPending}
                         onClick={() => setVoiding(null)}
                         type="button"
                       >
@@ -551,17 +694,19 @@ export function FinancialMetrics({
   totalAvailableMinor,
   incomeMinor,
   expenseMinor,
+  flowNetMinor,
 }: {
   totalAvailableMinor: number;
   incomeMinor: number;
   expenseMinor: number;
+  flowNetMinor: number;
 }) {
   return (
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="Saldo disponible total" value={formatCop(totalAvailableMinor)} />
       <Metric label="Ingresos del mes" value={formatCop(incomeMinor)} />
       <Metric label="Egresos del mes" value={formatCop(expenseMinor)} />
-      <Metric label="Flujo neto" value={formatCop(incomeMinor - expenseMinor)} />
+      <Metric label="Flujo neto" value={formatCop(flowNetMinor)} />
     </section>
   );
 }
@@ -587,7 +732,7 @@ function RecentMovementsPreview({ recent }: { recent: Recent[] }) {
         <div className="mt-4 divide-y divide-zinc-100">
           {recent.slice(0, 5).map((movement) => (
             <article
-              className="flex items-center justify-between gap-4 py-3"
+              className="flex flex-col justify-between gap-2 py-3 sm:flex-row sm:items-center"
               key={movement.id}
             >
               <div className="min-w-0">
@@ -595,6 +740,11 @@ function RecentMovementsPreview({ recent }: { recent: Recent[] }) {
                 <p className="mt-1 truncate text-sm text-zinc-600">
                   {movement.description || "Sin descripción"} ·{" "}
                   {formatBusinessDate(new Date(movement.occurredAt))}
+                </p>
+                <p className="mt-1 break-words text-xs text-zinc-500">
+                  {movement.accountNames} ·{" "}
+                  {movement.userName ?? "Usuario no identificado"}
+                  {movement.status === "VOIDED" ? " · Anulada" : ""}
                 </p>
               </div>
               <p
@@ -632,11 +782,15 @@ function AdjustmentForm({
   formAction,
   onSubmit,
   today,
+  idempotencyKey,
+  isPending,
 }: {
   accounts: Account[];
   formAction: (payload: FormData) => void;
-  onSubmit: () => void;
+  onSubmit: () => boolean;
   today: string;
+  idempotencyKey: string;
+  isPending: boolean;
 }) {
   const [accountId, setAccountId] = useState("");
   const [actualBalanceMinor, setActualBalanceMinor] = useState(0);
@@ -654,10 +808,11 @@ function AdjustmentForm({
         ) {
           event.preventDefault();
         } else {
-          onSubmit();
+          if (!onSubmit()) event.preventDefault();
         }
       }}
     >
+      <input name="idempotencyKey" type="hidden" value={idempotencyKey} />
       <TabUnlockField />
       <div className="sm:col-span-2">
         <h3 className="font-semibold text-zinc-950">Ajuste de saldo</h3>
@@ -727,9 +882,10 @@ function AdjustmentForm({
       <div className="sm:col-span-2">
         <button
           className="min-h-11 rounded-lg bg-orange-700 px-4 text-sm font-semibold text-white hover:bg-orange-800"
+          disabled={isPending}
           type="submit"
         >
-          Confirmar ajuste
+          {isPending ? "Guardando…" : "Confirmar ajuste"}
         </button>
       </div>
     </form>
@@ -750,27 +906,38 @@ function Action({
   label,
   onClick,
   tone,
+  description,
+  disabled,
 }: {
   active?: boolean;
   icon: typeof CircleDollarSign;
   label: string;
   onClick: () => void;
-  tone?: "caution";
+  tone?: "caution" | "income" | "expense" | "transfer";
+  description: string;
+  disabled: boolean;
 }) {
+  const colors =
+    tone === "income"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+      : tone === "expense"
+        ? "border-orange-200 bg-orange-50 text-orange-950 hover:bg-orange-100"
+        : tone === "transfer"
+          ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800"
+          : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50";
   return (
     <button
-      className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-4 text-sm font-semibold transition-colors ${
-        active
-          ? "border-orange-700 bg-orange-700 text-white"
-          : tone === "caution"
-            ? "border-orange-300 bg-orange-50 text-orange-900 hover:bg-orange-100"
-            : "border-zinc-300 text-zinc-800 hover:bg-zinc-50"
-      }`}
+      aria-pressed={active}
+      disabled={disabled}
+      className={`flex min-h-24 items-center gap-3 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600 disabled:opacity-50 ${colors} ${active ? "ring-2 ring-orange-600" : ""}`}
       onClick={onClick}
       type="button"
     >
-      <Icon className="size-4 text-orange-700" />
-      {label}
+      <Icon aria-hidden="true" className="size-6 shrink-0" />
+      <span>
+        <span className="block text-sm font-bold">{label}</span>
+        <span className="mt-1 block text-xs opacity-80">{description}</span>
+      </span>
     </button>
   );
 }
@@ -813,17 +980,20 @@ function Filter({
   name,
   placeholder,
   type = "text",
+  value,
 }: {
   label: string;
   name: string;
   placeholder?: string;
   type?: string;
+  value?: string;
 }) {
   return (
     <label className="text-xs font-semibold text-zinc-700">
       {label}
       <input
         className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
+        defaultValue={value}
         name={name}
         placeholder={placeholder}
         type={type}

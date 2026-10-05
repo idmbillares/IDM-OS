@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { redirect } from "next/navigation";
 
@@ -7,6 +8,13 @@ import { AppUnlockGate } from "@/components/auth/app-unlock-gate";
 import { getAuthProvider } from "@/modules/auth/provider";
 import { hasPersonalPin } from "@/modules/auth/app-security";
 import { getBrandingSnapshot } from "@/modules/branding/service";
+
+export async function generateMetadata(): Promise<Metadata> {
+  await connection();
+  const { revision } = await getBrandingSnapshot();
+  const url = `/api/branding/icon?v=${revision}`;
+  return { icons: { icon: url, apple: url } };
+}
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   await connection();

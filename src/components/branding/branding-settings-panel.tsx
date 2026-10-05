@@ -1,9 +1,11 @@
 "use client";
 
-import { ImageUp, LockKeyhole, ShieldCheck } from "lucide-react";
+import { ImageUp, LockKeyhole, ShieldCheck, RotateCcw } from "lucide-react";
 import Image from "next/image";
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { TabUnlockField } from "@/components/auth/tab-unlock-field";
+import { maxAppIconBytes } from "@/modules/branding/contracts";
 
 import {
   updateApplicationIcon,
@@ -27,6 +29,9 @@ export function BrandingSettingsPanel({
   isAdministrator,
 }: BrandingSettingsPanelProps) {
   const router = useRouter();
+  const [preview, setPreview] = useState<string | null>(null);
+  const [fileError, setFileError] = useState("");
+  const input = useRef<HTMLInputElement>(null);
   const [state, formAction, isPending] = useActionState(
     updateApplicationIcon,
     initialBrandingActionState,
@@ -34,9 +39,21 @@ export function BrandingSettingsPanel({
 
   useEffect(() => {
     if (state.status === "success") {
-      router.refresh();
+      const timer = window.setTimeout(() => {
+        setPreview(null);
+        setFileError("");
+        if (input.current) input.current.value = "";
+        router.refresh();
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
-  }, [router, state.status]);
+  }, [router, state]);
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview);
+    },
+    [preview],
+  );
 
   if (!isAdministrator) {
     return (
@@ -61,7 +78,10 @@ export function BrandingSettingsPanel({
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:p-8">
+    <section
+      id="marca"
+      className="scroll-mt-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:p-8"
+    >
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-orange-700">
@@ -83,17 +103,23 @@ export function BrandingSettingsPanel({
             alt="Vista previa del ícono actual de IDM OS"
             className="size-14 rounded-lg object-cover shadow-sm"
             height={56}
-            src={iconUrl}
+            src={preview ?? iconUrl}
             unoptimized
             width={56}
           />
           <span className="text-sm font-medium text-zinc-600">
-            {hasCustomIcon ? "Ícono personalizado" : "Ícono predeterminado"}
+            {preview
+              ? "Vista previa · sin guardar"
+              : hasCustomIcon
+                ? "Ícono personalizado"
+                : "Ícono predeterminado"}
           </span>
         </div>
       </div>
 
       <form action={formAction} className="mt-8 border-t border-zinc-100 pt-6">
+        <TabUnlockField />
+        <input name="intent" type="hidden" value="upload" />
         <label className="block text-sm font-semibold text-zinc-800" htmlFor="app-icon">
           Reemplazar ícono
         </label>
@@ -102,6 +128,54 @@ export function BrandingSettingsPanel({
             accept="image/png"
             className="block w-full cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 file:mr-4 file:rounded-md file:border-0 file:bg-orange-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-orange-800 hover:file:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
             id="app-icon"
+            ref={input}
+            disabled={isPending}
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              const field = event.currentTarget;
+              if (file && (file.type !== "image/png" || file.size > maxAppIconBytes)) {
+                setFileError(
+                  file.type !== "image/png"
+                    ? "Formato incorrecto: selecciona un PNG."
+                    : "El archivo supera el máximo de 512 KB.",
+                );
+                setPreview(null);
+                event.target.value = "";
+                return;
+              }
+              setFileError("");
+              setPreview(null);
+              if (!file) return;
+              const url = URL.createObjectURL(file);
+              const image = new window.Image();
+              image.src = url;
+              try {
+                await image.decode();
+                if (field.files?.[0] !== file) {
+                  URL.revokeObjectURL(url);
+                  return;
+                }
+                if (
+                  !image.naturalWidth ||
+                  image.naturalWidth !== image.naturalHeight ||
+                  image.naturalWidth > 512
+                ) {
+                  throw new Error(
+                    "Dimensiones incorrectas: usa un PNG cuadrado de máximo 512 × 512 px.",
+                  );
+                }
+                setPreview(url);
+              } catch (error) {
+                URL.revokeObjectURL(url);
+                if (field.files?.[0] !== file) return;
+                field.value = "";
+                setFileError(
+                  error instanceof Error && error.message.startsWith("Dimensiones")
+                    ? error.message
+                    : "El archivo PNG está corrupto o no se puede leer.",
+                );
+              }
+            }}
             name="appIcon"
             required
             type="file"
@@ -121,9 +195,30 @@ export function BrandingSettingsPanel({
             state.status === "error" ? "text-orange-800" : "text-zinc-600"
           }`}
         >
-          {state.message}
+          {fileError || state.message}
         </p>
       </form>
+      {hasCustomIcon ? (
+        <form
+          action={formAction}
+          className="mt-4"
+          onSubmit={() => {
+            setPreview(null);
+            if (input.current) input.current.value = "";
+          }}
+        >
+          <TabUnlockField />
+          <input name="intent" type="hidden" value="restore" />
+          <button
+            disabled={isPending}
+            type="submit"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-zinc-300 px-4 text-sm font-semibold disabled:opacity-50"
+          >
+            <RotateCcw className="size-4" />
+            Restaurar ícono predeterminado
+          </button>
+        </form>
+      ) : null}
     </section>
   );
 }

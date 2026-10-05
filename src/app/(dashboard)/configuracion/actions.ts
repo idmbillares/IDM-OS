@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 
 import { DomainError } from "@/lib/errors";
-import { changeApplicationIcon } from "@/modules/branding/service";
+import { operationError } from "@/lib/operation-error";
+import {
+  changeApplicationIcon,
+  restoreApplicationIcon,
+} from "@/modules/branding/service";
+import { requireUnlockedSession } from "@/modules/auth/app-security";
+import { z } from "zod";
 import { requireRole } from "@/modules/auth/contracts";
 import { getAuthProvider } from "@/modules/auth/provider";
 import { requireSession } from "@/modules/auth/contracts";
@@ -38,8 +44,25 @@ export async function updateApplicationIcon(
   _previousState: BrandingActionState,
   formData: FormData,
 ): Promise<BrandingActionState> {
+  let actorId: string | undefined;
   try {
     const session = await requireRole(getAuthProvider(), "ADMINISTRADOR");
+    actorId = session.id;
+    await requireUnlockedSession(session, formData.get("unlockToken"));
+    const intent = z
+      .enum(["upload", "restore"])
+      .safeParse(formData.get("intent") ?? "upload");
+    if (!intent.success)
+      return { message: "Acción de marca inválida.", status: "error" };
+    if (intent.data === "restore") {
+      await restoreApplicationIcon(session);
+      revalidatePath("/", "layout");
+      return {
+        message:
+          "Se restauró el ícono predeterminado. Los activos anteriores se conservan.",
+        status: "success",
+      };
+    }
     const file = formData.get("appIcon");
 
     if (!(file instanceof File) || file.size === 0) {
@@ -65,12 +88,8 @@ export async function updateApplicationIcon(
       status: "success",
     };
   } catch (error) {
-    if (error instanceof DomainError) {
-      return { message: error.message, status: "error" };
-    }
-
     return {
-      message: "No fue posible actualizar el ícono. Inténtalo nuevamente.",
+      message: operationError("branding.icon.update", actorId, error),
       status: "error",
     };
   }

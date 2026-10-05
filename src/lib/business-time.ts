@@ -33,8 +33,14 @@ export function businessToday(date = new Date()) {
 export function businessDateToInstant(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date("invalid");
   const [year, month, day] = value.split("-").map(Number);
-  const noonUtc = new Date(Date.UTC(year, month - 1, day, 12));
-  return new Date(noonUtc.valueOf() - offsetMinutes(noonUtc) * 60_000);
+  const midnightUtc = new Date(Date.UTC(year, month - 1, day));
+  if (
+    midnightUtc.getUTCFullYear() !== year ||
+    midnightUtc.getUTCMonth() !== month - 1 ||
+    midnightUtc.getUTCDate() !== day
+  )
+    return new Date("invalid");
+  return new Date(midnightUtc.valueOf() - offsetMinutes(midnightUtc) * 60_000);
 }
 
 export function businessDayBounds(value: string) {
@@ -65,6 +71,14 @@ export function businessMonthBounds(date = new Date()) {
 export function formatBusinessDate(value: Date) {
   return new Intl.DateTimeFormat("es-CO", {
     dateStyle: "medium",
+    timeZone: BUSINESS_TIME_ZONE,
+  }).format(value);
+}
+
+export function formatBusinessDateTime(value: Date) {
+  return new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
     timeZone: BUSINESS_TIME_ZONE,
   }).format(value);
 }

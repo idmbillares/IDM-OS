@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { DomainError } from "@/lib/errors";
+import { operationError } from "@/lib/operation-error";
 import { requireRole } from "@/modules/auth/contracts";
 import { getAuthProvider } from "@/modules/auth/provider";
 import { requireUnlockedSession } from "@/modules/auth/app-security";
@@ -26,8 +26,22 @@ async function run(
   success: string,
   unlockToken: unknown,
 ): Promise<LedgerActionState> {
+  let actorId: string | undefined;
+  const operation =
+    action === registerIncome
+      ? "cash.income"
+      : action === registerExpense
+        ? "cash.expense"
+        : action === registerOpeningBalance
+          ? "cash.opening"
+          : action === registerTransfer
+            ? "cash.transfer"
+            : action === registerBalanceAdjustment
+              ? "cash.adjustment"
+              : "cash.void";
   try {
     const actor = await requireRole(getAuthProvider(), "ADMINISTRADOR");
+    actorId = actor.id;
     await requireUnlockedSession(actor, unlockToken);
     await action(actor, values);
     revalidatePath("/");
@@ -36,10 +50,7 @@ async function run(
     return { message: success, status: "success" };
   } catch (error) {
     return {
-      message:
-        error instanceof DomainError
-          ? error.message
-          : "No fue posible registrar la operación.",
+      message: operationError(operation, actorId, error),
       status: "error",
     };
   }
@@ -47,6 +58,7 @@ async function run(
 
 function entry(formData: FormData) {
   return {
+    idempotencyKey: formData.get("idempotencyKey"),
     accountId: formData.get("accountId"),
     amountMinor: formData.get("amountMinor"),
     category: formData.get("category"),
@@ -86,6 +98,7 @@ export async function transferAction(_state: LedgerActionState, formData: FormDa
   return run(
     registerTransfer,
     {
+      idempotencyKey: formData.get("idempotencyKey"),
       originAccountId: formData.get("originAccountId"),
       destinationAccountId: formData.get("destinationAccountId"),
       amountMinor: formData.get("amountMinor"),
@@ -105,6 +118,7 @@ export async function balanceAdjustmentAction(
   return run(
     registerBalanceAdjustment,
     {
+      idempotencyKey: formData.get("idempotencyKey"),
       accountId: formData.get("accountId"),
       actualBalanceMinor: formData.get("actualBalanceMinor"),
       occurredAt: formData.get("occurredAt"),

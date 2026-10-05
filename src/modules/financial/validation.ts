@@ -10,11 +10,19 @@ const amountMinor = z
   .safe()
   .refine((amount) => amount !== 0, "El movimiento no puede ser cero.");
 
-const positiveAmountMinor = z.coerce
-  .number()
-  .int("El valor debe ser un número entero de pesos.")
-  .positive("El valor debe ser mayor que cero.")
-  .safe();
+const integerInput = (value: unknown) =>
+  typeof value === "string" && /^\d+$/.test(value.trim())
+    ? Number(value.trim())
+    : value;
+
+const positiveAmountMinor = z.preprocess(
+  integerInput,
+  z
+    .number()
+    .int("El valor debe ser un número entero de pesos.")
+    .positive("El valor debe ser mayor que cero.")
+    .safe(),
+);
 
 const optionalText = z.string().trim().max(500).optional();
 const businessDate = z.preprocess(
@@ -23,6 +31,7 @@ const businessDate = z.preprocess(
 );
 
 const financialEntryBaseSchema = z.object({
+  idempotencyKey: uuid,
   accountId: uuid,
   amountMinor: positiveAmountMinor,
   category: z.string().trim().min(2, "Indica una categoría.").max(120),
@@ -34,6 +43,7 @@ const financialEntryBaseSchema = z.object({
 export const createOpeningBalanceSchema = financialEntryBaseSchema
   .pick({
     accountId: true,
+    idempotencyKey: true,
     amountMinor: true,
     occurredAt: true,
     reference: true,
@@ -47,9 +57,10 @@ export const createExpenseSchema = financialEntryBaseSchema;
 
 export const createTransferSchema = z
   .object({
+    idempotencyKey: uuid,
     destinationAccountId: uuid,
     description: z.string().trim().min(2, "Indica una descripción.").max(500),
-    occurredAt: z.coerce.date(),
+    occurredAt: businessDate,
     originAccountId: uuid,
     amountMinor: positiveAmountMinor,
     reference: optionalText,
@@ -69,12 +80,16 @@ export const voidFinancialTransactionSchema = z.object({
 });
 
 export const createBalanceAdjustmentSchema = z.object({
+  idempotencyKey: uuid,
   accountId: uuid,
-  actualBalanceMinor: z.coerce
-    .number()
-    .int("El saldo real debe ser un número entero de pesos.")
-    .min(0, "El saldo real no puede ser negativo.")
-    .safe(),
+  actualBalanceMinor: z.preprocess(
+    integerInput,
+    z
+      .number()
+      .int("El saldo real debe ser un número entero de pesos.")
+      .min(0, "El saldo real no puede ser negativo.")
+      .safe(),
+  ),
   occurredAt: businessDate,
   reason: z.string().trim().min(3, "Indica un motivo para el ajuste.").max(500),
   reference: optionalText,
@@ -149,3 +164,20 @@ export type UpdateFinancialAccountInput = z.infer<typeof updateFinancialAccountS
 export type RecordFinancialTransactionInput = z.infer<
   typeof recordFinancialTransactionSchema
 >;
+
+export const financialHistoryFiltersSchema = z
+  .object({
+    accountId: uuid.optional(),
+    category: z.string().trim().max(120).optional(),
+    dateFrom: z.date().optional(),
+    dateTo: z.date().optional(),
+    page: z.number().int().positive().max(1_000_000).optional(),
+    search: z.string().trim().max(500).optional(),
+    type: z
+      .enum(["INCOME", "EXPENSE", "TRANSFER", "ADJUSTMENT", "OPENING_BALANCE"])
+      .optional(),
+  })
+  .refine(
+    (f) => !f.dateFrom || !f.dateTo || f.dateFrom <= f.dateTo,
+    "La fecha desde debe ser anterior a la fecha hasta.",
+  );
