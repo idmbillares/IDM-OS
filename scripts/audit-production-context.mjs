@@ -25,11 +25,20 @@ async function get(path) {
 const repo = await get("");
 const deployments = await get("/deployments?per_page=5");
 const status = await get("/commits/HEAD/status");
+const checks = await get("/commits/HEAD/check-runs");
 console.log(
   JSON.stringify(
     {
       private: repo.private,
       defaultBranch: repo.default_branch,
+      checks: checks.check_runs.map((c) => ({
+        name: c.name,
+        status: c.status,
+        conclusion: c.conclusion,
+        url: c.details_url,
+        title: c.output?.title,
+        summary: c.output?.summary,
+      })),
       statuses: status.statuses.map((s) => ({
         state: s.state,
         context: s.context,

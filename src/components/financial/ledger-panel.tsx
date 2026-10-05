@@ -11,6 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
+import Form from "next/form";
 import {
   useActionState,
   useEffect,
@@ -446,83 +447,84 @@ export function LedgerPanel({
             {formatBusinessDate(new Date(period.end))}. El historial muestra todas las
             fechas, salvo los filtros visibles. Zona horaria: America/Bogota.
           </p>
-          <form
-            action="/caja/movimientos"
-            key={query}
-            className="mt-5 grid gap-3 rounded-xl bg-zinc-50 p-4 sm:grid-cols-2 lg:grid-cols-5"
-          >
-            <Filter
-              label="Desde"
-              name="from"
-              type="date"
-              value={filters.get("from") ?? ""}
-            />
-            <Filter
-              label="Hasta"
-              name="to"
-              type="date"
-              value={filters.get("to") ?? ""}
-            />
-            <label className="text-xs font-semibold text-zinc-700">
-              Tipo
-              <select
-                className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
-                defaultValue={filters.get("type") ?? ""}
-                name="type"
-              >
-                <option value="">Todos</option>
-                <option value="INCOME">Ingresos</option>
-                <option value="EXPENSE">Egresos</option>
-                <option value="TRANSFER">Transferencias</option>
-                <option value="ADJUSTMENT">Ajustes</option>
-                <option value="OPENING_BALANCE">Saldo inicial</option>
-              </select>
-            </label>
-            <label className="text-xs font-semibold text-zinc-700">
-              Cuenta
-              <select
-                className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
-                defaultValue={filters.get("account") ?? ""}
-                name="account"
-              >
-                <option value="">Todas</option>
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Filter
-              label="Categoría"
-              name="category"
-              placeholder="Parte de la categoría"
-              value={filters.get("category") ?? ""}
-            />
-            <label className="text-xs font-semibold text-zinc-700 sm:col-span-2 lg:col-span-4">
-              Buscar descripción o referencia
-              <input
-                className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
-                defaultValue={filters.get("q") ?? ""}
-                name="q"
-                placeholder="Buscar"
+          <div key={query}>
+            <Form
+              action="/caja/movimientos"
+              className="mt-5 grid gap-3 rounded-xl bg-zinc-50 p-4 sm:grid-cols-2 lg:grid-cols-5"
+            >
+              <Filter
+                label="Desde"
+                name="from"
+                type="date"
+                value={filters.get("from") ?? ""}
               />
-            </label>
-            <button
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-3 text-sm font-semibold text-white"
-              disabled={isPending}
-              type="submit"
-            >
-              <Search className="size-4" />
-              Filtrar
-            </button>
-            <Link
-              href="/caja/movimientos"
-              className="text-sm font-semibold text-orange-800"
-            >
-              Limpiar filtros
-            </Link>
-          </form>
+              <Filter
+                label="Hasta"
+                name="to"
+                type="date"
+                value={filters.get("to") ?? ""}
+              />
+              <label className="text-xs font-semibold text-zinc-700">
+                Tipo
+                <select
+                  className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
+                  defaultValue={filters.get("type") ?? ""}
+                  name="type"
+                >
+                  <option value="">Todos</option>
+                  <option value="INCOME">Ingresos</option>
+                  <option value="EXPENSE">Egresos</option>
+                  <option value="TRANSFER">Transferencias</option>
+                  <option value="ADJUSTMENT">Ajustes</option>
+                  <option value="OPENING_BALANCE">Saldo inicial</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-zinc-700">
+                Cuenta
+                <select
+                  className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
+                  defaultValue={filters.get("account") ?? ""}
+                  name="account"
+                >
+                  <option value="">Todas</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Filter
+                label="Categoría"
+                name="category"
+                placeholder="Parte de la categoría"
+                value={filters.get("category") ?? ""}
+              />
+              <label className="text-xs font-semibold text-zinc-700 sm:col-span-2 lg:col-span-4">
+                Buscar descripción o referencia
+                <input
+                  className="mt-1 min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-2 text-sm"
+                  defaultValue={filters.get("q") ?? ""}
+                  name="q"
+                  placeholder="Buscar"
+                />
+              </label>
+              <button
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-3 text-sm font-semibold text-white"
+                disabled={isPending}
+                type="submit"
+              >
+                <Search className="size-4" />
+                Filtrar
+              </button>
+              <Link
+                href="/caja/movimientos"
+                className="text-sm font-semibold text-orange-800"
+              >
+                Limpiar filtros
+              </Link>
+            </Form>
+          </div>
           {recent.length ? (
             <div className="mt-5 divide-y divide-zinc-100">
               {recent.map((movement) => (

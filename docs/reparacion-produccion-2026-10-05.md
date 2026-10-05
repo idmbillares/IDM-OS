@@ -5,8 +5,9 @@
 El commit que Vercel tenía publicado (`8d92ebd`, deployment GitHub 6793968161,
 creado el 1 de octubre) escribía el PNG en `data/branding` antes de guardar
 la referencia PostgreSQL. Ese adaptador dependía de disco local del servidor;
-el error quedaba oculto por el catch genérico de la acción. No hay logs Vercel
-autenticados disponibles para atribuir el fallo observado a un errno específico.
+el error quedaba oculto por el catch genérico de la acción. El panel de logs Vercel
+gratuito permite consultar la última hora; todavía no se recuperó la excepción
+del intento original para atribuirle un errno específico.
 El fallo estructural de persistencia está probado por el código desplegado.
 
 ## 2. Corrección de marca
@@ -102,6 +103,10 @@ Desde/Hasta usan días completos America/Bogota. La entrada normal no crea
 fechas implícitas. Todos los filtros son visibles y hay Limpiar filtros. Fechas,
 cuentas/tipos inválidos y rangos invertidos muestran aviso explícito. Los indicadores
 explican que corresponden al mes aunque el historial abarque otras fechas.
+El filtro usa `next/form` para actualizar la URL con navegación cliente,
+conservando el layout y el estado del desbloqueo. Un formulario GET nativo
+recargaba la página y perdía el fallback de memoria en navegadores que bloquean
+sessionStorage. No se modificaron las reglas, tokens o duración del PIN.
 
 Escrituras transaccionales con locks de cuenta ordenados, idempotencia UUID
 y fingerprint del contenido/actor, montos enteros seguros, bloqueo de fondos
@@ -127,10 +132,26 @@ movimientos ficticios en producción para demostrar la interfaz.
 
 ## 9. Producción
 
-Pendiente de completar con el resultado del despliegue y las comprobaciones
-finales. El acceso al navegador de producción estaba en `/acceso`; se solicitó
-al usuario iniciar sesión y desbloquear con su PIN, sin compartir credenciales.
-No se atribuye evidencia de login, upload o iPhone físico a pruebas de dominio.
+Vercel publicó el commit `df9abcaefb5385853465fc62ad3ee886a48a527d` como
+Production, deployment `w2hRnEPrKnVMUREfy2mZa8BV9PSz` (GitHub 6867152182).
+El dominio `idm-os-seven.vercel.app/api/branding/icon` devolvió HTTP 200 y ese
+commit en `X-IDM-Release`. `X-IDM-Database-Identity` fue
+`0f8e33e666d2fd21891f04049de2af0db427b03095717ee68188cc740b2c3a77`, igual a
+la configuración del cliente que auditó los movimientos. Así se comprobó el
+destino de conexión de producción sin revelar claves.
+
+Se inspeccionó el panel Vercel: POSTGRES_RUNTIME_URL, POSTGRES_SSL_CERT,
+IDM_AUTH_MODE, AUTH_URL, AUTH_SECRET, credenciales Google y variables Supabase
+están configuradas para Production/Preview. No se revelaron ni modificaron
+secretos. El push por sí solo no inició un deployment; se ejecutó la opción
+existente Create Deployment → main → Deploy to Production para el commit validado.
+
+Con sesión Google/PIN autorizada se vio el historial público de producción:
+18 resultados de 18 operaciones, los cuatro IDs del desglose, montos y
+responsables, y los originales anulados con sus compensaciones. La sesión volvió
+a bloquearse al enviar el GET nativo del filtro; la corrección `next/form`
+requiere una segunda publicación y comprobación. Carga de PNG, logout/login
+y iPhone físico aún no se consideran probados de extremo a extremo.
 
 ## 10. Riesgos pendientes
 
