@@ -82,7 +82,7 @@ descripciones repetidas no bastan para afirmar duplicidad comercial.
 ## 6. Base de datos y migraciones
 
 Proyecto Supabase `IDM OS`, ref `flpwcpgwciwmvxonsxee`, PostgreSQL 17,
-esquema public, session pooler ca-central-1. Cliente con TLS y CA validada.
+esquema public, pooler ca-central-1. Cliente con TLS y CA validada.
 No se ejecutaron DELETE, ajustes o anulaciones sobre operaciones existentes.
 
 `0003_cash_integrity_branding.sql` es aditiva: añade contenido bytea inmutable,
@@ -143,15 +143,32 @@ destino de conexión de producción sin revelar claves.
 Se inspeccionó el panel Vercel: POSTGRES_RUNTIME_URL, POSTGRES_SSL_CERT,
 IDM_AUTH_MODE, AUTH_URL, AUTH_SECRET, credenciales Google y variables Supabase
 están configuradas para Production/Preview. No se revelaron ni modificaron
-secretos. El push por sí solo no inició un deployment; se ejecutó la opción
-existente Create Deployment → main → Deploy to Production para el commit validado.
+los valores de secretos. Posteriormente se actualizó únicamente
+POSTGRES_RUNTIME_URL (Production/Preview) al puerto 6543 del mismo host,
+usuario/proyecto y base, conservando contraseña y TLS. Para la primera publicación
+se ejecutó Create Deployment → main → Deploy to Production al no observar un
+deployment inmediato. Más tarde Vercel mostró también una publicación Git de
+`ff41851`, lista a las 13:49 Colombia: la integración puede tardar en reflejarse.
 
 Con sesión Google/PIN autorizada se vio el historial público de producción:
 18 resultados de 18 operaciones, los cuatro IDs del desglose, montos y
 responsables, y los originales anulados con sus compensaciones. La sesión volvió
 a bloquearse al enviar el GET nativo del filtro; la corrección `next/form`
-requiere una segunda publicación y comprobación. Carga de PNG, logout/login
+se publicó en `ff41851` y requiere comprobación tras resolver el pool. Carga de PNG, logout/login
 y iPhone físico aún no se consideran probados de extremo a extremo.
+
+Al abrir Configuración se diagnosticó otro error concreto mediante Vercel Logs:
+5 de octubre 13:49:41–43 Colombia, GET /configuracion y /favicon.ico,
+FATAL XX000, `(EMAXCONNSESSION) max clients reached in session mode`, límite 15.
+Cada instancia del cliente podía abrir 10 conexiones en modo sesión y el pool
+no se reutilizaba globalmente en producción. La reparación cambia a Supavisor
+transaccional 6543, una conexión por instancia, timeout 10 s, idle 1 s y máximo
+de vida 60 s, caché global por instancia y registro seguro de errores ociosos.
+Vercel rechaza configurar el session pooler como runtime. No hay prepared
+statements con nombre ni locks de sesión en la lógica operativa; los locks son
+transaccionales. Las herramientas locales de mantenimiento conservan sesión.
+Una conexión TLS de lectura al puerto 6543 devolvió los mismos 18 registros y
+saldo 300.000 antes de guardar la variable. No requiere otra migración.
 
 ## 10. Riesgos pendientes
 

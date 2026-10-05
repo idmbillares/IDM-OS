@@ -337,6 +337,20 @@ volcar SQL, mensajes del motor, formularios ni secretos.
 
 ### PostgreSQL / Supabase
 
+En Vercel el runtime usa Supavisor en modo transacción (puerto 6543), con
+una conexión por instancia, cierre de conexiones ociosas al segundo y timeout
+de adquisición de diez segundos. El pool se reutiliza dentro de la instancia,
+también en producción; sus errores ociosos se registran sin secretos. El modo
+sesión 5432 retenía conexiones de distintas instancias y agotó las 15 admitidas
+por el proyecto (`EMAXCONNSESSION`, observado en logs de producción).
+El cliente rechaza ese modo en Vercel para evitar repetir el incidente.
+No se usan prepared statements con nombre ni estado de sesión fuera de una
+transacción en el dominio operativo. Se conserva validación TLS de la CA.
+Las migraciones y pruebas aisladas que usan `search_path` mantienen una conexión
+local de sesión/directa; no cambies su URL de mantenimiento a modo transacción.
+
+Referencia: [conexiones Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
 La migración PostgreSQL vive separada en `drizzle-postgres/` porque el SQL de
 SQLite no es portable a PostgreSQL. Usa `POSTGRES_RUNTIME_URL` y, cuando la
 red puede resolver el host directo, `POSTGRES_MIGRATIONS_URL`; ambos requieren

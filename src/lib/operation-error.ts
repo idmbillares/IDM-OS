@@ -8,8 +8,11 @@ export function operationError(
   error: unknown,
 ) {
   const correlationId = randomUUID();
-  const rawCode =
-    error instanceof DomainError
+  const poolExhausted =
+    error instanceof Error && error.message.includes("EMAXCONNSESSION");
+  const rawCode = poolExhausted
+    ? "DB_POOL_EXHAUSTED"
+    : error instanceof DomainError
       ? error.code
       : error && typeof error === "object" && "code" in error
         ? String(error.code)
@@ -27,23 +30,25 @@ export function operationError(
   );
   if (error instanceof DomainError) return error.message;
   const reason =
-    code === "42501"
-      ? "Permisos de base de datos insuficientes para guardar la operación."
-      : ["42P01", "42703"].includes(code)
-        ? "La base de datos no tiene la migración requerida."
-        : [
-              "ECONNRESET",
-              "ECONNREFUSED",
-              "ETIMEDOUT",
-              "ENOTFOUND",
-              "53300",
-              "57P01",
-            ].includes(code)
-          ? "No se pudo conectar con el almacenamiento persistente. Inténtalo nuevamente."
-          : /^[0-9A-Z]{5}$/.test(code)
-            ? "La base de datos rechazó la operación; se conservó el estado anterior."
-            : ["EROFS", "EACCES", "ENOSPC"].includes(code)
-              ? "El almacenamiento no permite guardar el archivo."
-              : "Ocurrió un error inesperado; consulta el código de diagnóstico.";
+    code === "DB_POOL_EXHAUSTED" || code === "53300"
+      ? "El almacenamiento alcanzó su límite de conexiones. Inténtalo nuevamente."
+      : code === "42501"
+        ? "Permisos de base de datos insuficientes para guardar la operación."
+        : ["42P01", "42703"].includes(code)
+          ? "La base de datos no tiene la migración requerida."
+          : [
+                "ECONNRESET",
+                "ECONNREFUSED",
+                "ETIMEDOUT",
+                "ENOTFOUND",
+                "53300",
+                "57P01",
+              ].includes(code)
+            ? "No se pudo conectar con el almacenamiento persistente. Inténtalo nuevamente."
+            : /^[0-9A-Z]{5}$/.test(code)
+              ? "La base de datos rechazó la operación; se conservó el estado anterior."
+              : ["EROFS", "EACCES", "ENOSPC"].includes(code)
+                ? "El almacenamiento no permite guardar el archivo."
+                : "Ocurrió un error inesperado; consulta el código de diagnóstico.";
   return `${reason} Código: ${correlationId}.`;
 }
