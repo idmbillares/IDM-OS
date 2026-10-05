@@ -54,6 +54,7 @@ yarn-error.log*
 /backups/*.db-shm
 /backups/*.db-wal
 /backups/audit-*.json
+/backups/audit-*.png
 
 # vercel
 .vercel

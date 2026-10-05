@@ -126,6 +126,10 @@ no se reemplazaron. SQLite solo participa en scripts explícitos de respaldo/pru
 - PNG: MIME, peso, corrupción, CRC, dimensiones, cuadrado y Adam7.
 - Formato, lint, TypeScript y build aprobados. Verificaciones SQLite temporal,
   reconciliación PostgreSQL, triggers y seguridad TLS/RLS aprobadas.
+- Tras el cambio de pool se repitieron integración (17 aprobadas), unitarias
+  (12 aprobadas, 2 suites omitidas por defecto), formato/lint/tipos/build y las
+  tres verificaciones de integridad/reconciliación/seguridad. Dieciséis clientes
+  simultáneos en modo transacción leyeron los 18 registros con TLS, sin escrituras.
 
 Las pruebas aisladas no insertan fixtures en tablas operativas. No se ejecutaron
 movimientos ficticios en producción para demostrar la interfaz.
@@ -154,8 +158,10 @@ Con sesión Google/PIN autorizada se vio el historial público de producción:
 18 resultados de 18 operaciones, los cuatro IDs del desglose, montos y
 responsables, y los originales anulados con sus compensaciones. La sesión volvió
 a bloquearse al enviar el GET nativo del filtro; la corrección `next/form`
-se publicó en `ff41851` y requiere comprobación tras resolver el pool. Carga de PNG, logout/login
-y iPhone físico aún no se consideran probados de extremo a extremo.
+se publicó en `ff41851`. Después de reparar el pool se comprobó en la interfaz
+que fechas/tipo/cuenta/categoría/búsqueda y Limpiar filtros actualizan la URL,
+devuelven 4/2/1/18 resultados según el caso y conservan el desbloqueo. Recargar
+mantiene los cuatro IDs del día 5 y las cifras 501.000/201.000/300.000.
 
 Al abrir Configuración se diagnosticó otro error concreto mediante Vercel Logs:
 5 de octubre 13:49:41–43 Colombia, GET /configuracion y /favicon.ico,
@@ -170,6 +176,32 @@ transaccionales. Las herramientas locales de mantenimiento conservan sesión.
 Una conexión TLS de lectura al puerto 6543 devolvió los mismos 18 registros y
 saldo 300.000 antes de guardar la variable. No requiere otra migración.
 
+La reparación de conexión está publicada en commit
+`1d34b9b75f3b3b93b1162d700e796a15ea3cb76b`, deployment Vercel
+`5hQeboXhBQY1KkH5ULrc9t61xFTU`, GitHub 6867496306, Production/Ready,
+creado a las 14:00:20 Colombia. El alias público respondió HTTP 200 con ese
+commit y la misma huella de base. Se confirmó el enlace del dominio y commit
+en Vercel. La revisión de logs durante los recorridos no mostró errores nuevos
+posteriores a la publicación; los EMAXCONNSESSION observados eran de las 13:49.
+
+Prueba real de carga por formulario Google/PIN/ADMIN: PNG del mismo ícono
+predeterminado, 256 × 256, 6.791 bytes. La interfaz confirmó actualización
+y auditoría; apareció en navegación y Configuración y permaneció tras recargar.
+Revisión 1, activo `77fe9e13-f556-478b-a973-ee911b9c54d7`, SHA-256
+`e5d30d1624fabe8cb95cef102816009280086469720c2e6444693e97eb41c1fa`.
+Una conexión nueva comprobó bytea/metadata; el endpoint público devolvió PNG
+idéntico byte por byte. Favicon/apple icon e imágenes usaron `?v=1`.
+JPG, peso 524.289 bytes, PNG 300 × 200, PNG 513 × 513 y PNG corrupto mostraron
+los mensajes específicos y mantuvieron el activo previo. Ninguna prueba
+financiera ficticia se escribió en producción.
+
+Evidencias locales privadas (ignoradas por Git):
+`backups/audit-production-final-2026-10-05.json`,
+`backups/audit-icon-produccion.png`, `backups/audit-icon-error-corrupto.png`,
+`backups/audit-caja-dia-produccion.png`, `backups/audit-deploy-produccion.png`.
+Se solicitó al usuario la prueba de logout/login en otro dispositivo físico;
+no se sustituye esa prueba por un viewport de navegador.
+
 ## 10. Riesgos pendientes
 
 - Los cuatro movimientos activos requieren soportes para certificar legitimidad
@@ -182,6 +214,6 @@ saldo 300.000 antes de guardar la variable. No requiere otra migración.
   más limitada requiere un trabajo específico posterior.
 - Assets referenciados quedan conservados por la regla de inmutabilidad del
   proyecto. Deduplicación evita almacenar el mismo archivo varias veces.
-- Verificación manual final requiere sesión autorizada y PNG elegido por el
-  administrador. PC/iPhone/Safari, logout/login y otro dispositivo solo se
-  considerarán comprobados cuando haya evidencia real de esos recorridos.
+- Carga, refresco, filtros y reconciliación están comprobados en producción.
+  Logout/login y otro dispositivo físico/iPhone/Safari siguen pendientes de
+  confirmación del usuario; no se declaran comprobados por inferencia.
