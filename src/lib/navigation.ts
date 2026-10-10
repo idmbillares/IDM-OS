@@ -56,8 +56,8 @@ export const placeholderModules: ModuleDefinition[] = [
   {
     slug: "ventas",
     href: "/ventas",
-    label: "Ventas",
-    description: "Aquí se gestionarán ventas, recibos y sus procesos relacionados.",
+    label: "Punto de Venta",
+    description: "Ventas internas, pagos recibidos y comprobantes.",
     icon: ShoppingCart,
   },
   {
