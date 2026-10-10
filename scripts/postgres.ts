@@ -49,7 +49,14 @@ export async function connectPostgres(
       !["ENOTFOUND", "EAI_AGAIN"].includes((error as NodeJS.ErrnoException).code ?? "")
     )
       throw error;
-    const fallback = postgresClient("POSTGRES_RUNTIME_URL");
+    const fallbackConfig = postgresConfig("POSTGRES_RUNTIME_URL");
+    const sessionUrl = new URL(String(fallbackConfig.connectionString));
+    if (!sessionUrl.hostname.endsWith(".pooler.supabase.com")) throw error;
+    sessionUrl.port = "5432";
+    const fallback = new Client({
+      ...fallbackConfig,
+      connectionString: sessionUrl.toString(),
+    });
     await fallback.connect();
     return fallback;
   }
