@@ -4,6 +4,11 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { pool } from "@/db/client";
 import { AuthorizationError, ValidationError } from "@/lib/errors";
+import {
+  ensureUnitQuantity,
+  positiveQuantity,
+  quantityFromDatabase,
+} from "@/modules/inventory/quantity";
 
 type Actor = { id: string };
 const integerInput = (value: unknown) =>
@@ -11,7 +16,6 @@ const integerInput = (value: unknown) =>
     ? Number(value.trim())
     : value;
 const nonnegative = z.preprocess(integerInput, z.number().int().safe().nonnegative());
-const positive = z.preprocess(integerInput, z.number().int().safe().positive());
 const draftSchema = z.object({
   batchId: z.string().uuid(),
   reference: z.string().trim().max(120).optional(),
@@ -20,7 +24,7 @@ const draftSchema = z.object({
     .array(
       z.object({
         productId: z.string().uuid(),
-        quantity: positive,
+        quantity: positiveQuantity,
         unitCostMinor: nonnegative,
         salePriceMinor: nonnegative,
       }),
@@ -72,8 +76,8 @@ export async function saveOpeningBatch(actor: Actor, raw: unknown) {
       throw new ValidationError("La carga ya fue confirmada.");
     for (const line of item.items) {
       const product = (
-        await c.query<{ category: string; is_active: boolean }>(
-          "SELECT category,is_active FROM inventory_products WHERE id=$1",
+        await c.query<{ category: string; unit: string; is_active: boolean }>(
+          "SELECT category,unit,is_active FROM inventory_products WHERE id=$1",
           [line.productId],
         )
       ).rows[0];
@@ -81,6 +85,7 @@ export async function saveOpeningBatch(actor: Actor, raw: unknown) {
         throw new ValidationError(
           "La carga contiene un producto inactivo, inexistente o un servicio.",
         );
+      ensureUnitQuantity(product.unit, line.quantity);
       if (
         (
           await c.query(
@@ -164,8 +169,8 @@ export async function confirmOpeningBatch(actor: Actor, raw: unknown) {
       throw new ValidationError("Agrega productos antes de confirmar la carga.");
     for (const line of lines) {
       const product = (
-        await c.query<{ category: string }>(
-          "SELECT category FROM inventory_products WHERE id=$1 AND is_active=true FOR UPDATE",
+        await c.query<{ category: string; unit: string }>(
+          "SELECT category,unit FROM inventory_products WHERE id=$1 AND is_active=true FOR UPDATE",
           [line.product_id],
         )
       ).rows[0];
@@ -173,6 +178,7 @@ export async function confirmOpeningBatch(actor: Actor, raw: unknown) {
         throw new ValidationError(
           "La carga contiene un producto inactivo, inexistente o un servicio.",
         );
+      ensureUnitQuantity(product.unit, quantityFromDatabase(line.quantity));
       if (
         (
           await c.query(
@@ -187,7 +193,7 @@ export async function confirmOpeningBatch(actor: Actor, raw: unknown) {
     }
     const now = new Date();
     for (const line of lines) {
-      const quantity = safeInteger(line.quantity),
+      const quantity = quantityFromDatabase(line.quantity),
         unitCost = safeInteger(line.unit_cost_minor),
         price = safeInteger(line.sale_price_minor);
       const movementId = randomUUID();
@@ -298,7 +304,7 @@ export async function getOpeningBatch(id: string) {
     )
   ).rows.map((row) => ({
     ...row,
-    quantity: safeInteger(row.quantity),
+    quantity: quantityFromDatabase(row.quantity),
     unitCostMinor: safeInteger(row.unitCostMinor),
     salePriceMinor: safeInteger(row.salePriceMinor),
   }));

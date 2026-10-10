@@ -9,6 +9,7 @@ import {
 } from "@/app/(dashboard)/ventas/actions";
 import { TabUnlockField } from "@/components/auth/tab-unlock-field";
 import { formatCop } from "@/modules/financial/money";
+import { milliunits, moneyForQuantity } from "@/modules/inventory/quantity";
 
 type Product = {
   id: string;
@@ -38,11 +39,15 @@ export function PosPanel({
   accounts,
   sales,
   initialKey,
+  canOperate,
+  allowDiscount,
 }: {
   products: Product[];
   accounts: Account[];
   sales: Sale[];
   initialKey: string;
+  canOperate: boolean;
+  allowDiscount: boolean;
 }) {
   const [state, action] = useActionState(createSaleAction, idle);
   const [key, setKey] = useState(initialKey);
@@ -54,7 +59,11 @@ export function PosPanel({
   const productById = new Map(products.map((product) => [product.id, product]));
   const total = cart.reduce((sum, line) => {
     const product = productById.get(line.productId);
-    return sum + (product?.salePriceMinor ?? 0) * line.quantity - line.discountMinor;
+    return (
+      sum +
+      moneyForQuantity(product?.salePriceMinor ?? 0, line.quantity) -
+      line.discountMinor
+    );
   }, 0);
   const paid = payments.reduce((sum, payment) => sum + payment.amountMinor, 0);
   const saleData = JSON.stringify({
@@ -114,26 +123,32 @@ export function PosPanel({
                         : `${product.quantity} ${product.unit} disponibles`}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={
-                      completed ||
-                      (product.category !== "Servicios" && product.quantity === 0)
-                    }
-                    className="min-h-10 rounded-lg bg-zinc-950 px-3 text-sm font-semibold text-white disabled:opacity-50"
-                    onClick={() =>
-                      setCart((current) =>
-                        current.some((line) => line.productId === product.id)
-                          ? current
-                          : [
-                              ...current,
-                              { productId: product.id, quantity: 1, discountMinor: 0 },
-                            ],
-                      )
-                    }
-                  >
-                    Agregar
-                  </button>
+                  {canOperate ? (
+                    <button
+                      type="button"
+                      disabled={
+                        completed ||
+                        (product.category !== "Servicios" && product.quantity === 0)
+                      }
+                      className="min-h-10 rounded-lg bg-zinc-950 px-3 text-sm font-semibold text-white disabled:opacity-50"
+                      onClick={() =>
+                        setCart((current) =>
+                          current.some((line) => line.productId === product.id)
+                            ? current
+                            : [
+                                ...current,
+                                {
+                                  productId: product.id,
+                                  quantity: 1,
+                                  discountMinor: 0,
+                                },
+                              ],
+                        )
+                      }
+                    >
+                      Agregar
+                    </button>
+                  ) : null}
                 </div>
               ))}
             {products.length === 0 ? (
@@ -143,208 +158,231 @@ export function PosPanel({
             ) : null}
           </div>
         </section>
-        <form
-          action={action}
-          className="space-y-4 rounded-2xl border border-orange-200 bg-orange-50 p-5"
-        >
-          <TabUnlockField />
-          <input name="idempotencyKey" type="hidden" value={key} readOnly />
-          <input name="saleData" type="hidden" value={saleData} readOnly />
-          <h2 className="text-lg font-semibold">Venta actual</h2>
-          <label className="block text-sm font-semibold">
-            Cliente (opcional)
-            <input
-              className="mt-1 min-h-11 w-full rounded-lg border bg-white p-2"
-              maxLength={160}
-              value={customerName}
-              onChange={(event) => setCustomerName(event.target.value)}
-            />
-          </label>
-          {cart.map((line) => {
-            const product = productById.get(line.productId)!;
-            return (
-              <div key={line.productId} className="rounded-xl border bg-white p-3">
-                <div className="flex justify-between gap-2">
-                  <strong>{product.name}</strong>
+        {canOperate ? (
+          <form
+            action={action}
+            className="space-y-4 rounded-2xl border border-orange-200 bg-orange-50 p-5"
+          >
+            <TabUnlockField />
+            <input name="idempotencyKey" type="hidden" value={key} readOnly />
+            <input name="saleData" type="hidden" value={saleData} readOnly />
+            <h2 className="text-lg font-semibold">Venta actual</h2>
+            <label className="block text-sm font-semibold">
+              Cliente (opcional)
+              <input
+                className="mt-1 min-h-11 w-full rounded-lg border bg-white p-2"
+                maxLength={160}
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
+              />
+            </label>
+            {cart.map((line) => {
+              const product = productById.get(line.productId)!;
+              return (
+                <div key={line.productId} className="rounded-xl border bg-white p-3">
+                  <div className="flex justify-between gap-2">
+                    <strong>{product.name}</strong>
+                    <button
+                      type="button"
+                      className="text-sm text-orange-800 underline"
+                      onClick={() =>
+                        setCart((current) =>
+                          current.filter((item) => item.productId !== line.productId),
+                        )
+                      }
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                    <label>
+                      Cantidad
+                      <input
+                        className="mt-1 w-full rounded-lg border p-2"
+                        type="number"
+                        min={
+                          product.unit === "metro" || product.unit === "kilogramo"
+                            ? "0.001"
+                            : "1"
+                        }
+                        step={
+                          product.unit === "metro" || product.unit === "kilogramo"
+                            ? "0.001"
+                            : "1"
+                        }
+                        max={
+                          product.category === "Servicios"
+                            ? undefined
+                            : product.quantity
+                        }
+                        value={line.quantity}
+                        onChange={(event) => {
+                          const quantity = Number(event.target.value);
+                          if (quantity < 0) return;
+                          try {
+                            milliunits(quantity);
+                            changeLine(line.productId, { quantity });
+                          } catch {
+                            // The server accepts at most three decimal places.
+                          }
+                        }}
+                      />
+                    </label>
+                    {allowDiscount ? (
+                      <label>
+                        Descuento COP
+                        <input
+                          className="mt-1 w-full rounded-lg border p-2"
+                          type="number"
+                          min="0"
+                          value={line.discountMinor}
+                          onChange={(event) =>
+                            changeLine(line.productId, {
+                              discountMinor: Number(event.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-right text-sm font-semibold">
+                    {formatCop(
+                      moneyForQuantity(product.salePriceMinor, line.quantity) -
+                        line.discountMinor,
+                    )}
+                  </p>
+                </div>
+              );
+            })}
+            <div className="border-t border-orange-200 pt-3 text-sm">
+              <p className="flex justify-between">
+                <span>Total</span>
+                <strong>{formatCop(total)}</strong>
+              </p>
+              <p className="flex justify-between">
+                <span>Recibido</span>
+                <strong>{formatCop(paid)}</strong>
+              </p>
+              <p className="flex justify-between">
+                <span>Pendiente</span>
+                <strong>{formatCop(Math.max(0, total - paid))}</strong>
+              </p>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Pagos recibidos</h3>
+                <button
+                  type="button"
+                  className="text-sm font-semibold text-orange-800 underline"
+                  onClick={() =>
+                    setPayments((current) => [
+                      ...current,
+                      { accountId: "", amountMinor: 0 },
+                    ])
+                  }
+                >
+                  Agregar pago
+                </button>
+              </div>
+              {payments.length === 0 ? (
+                <p className="text-xs text-zinc-600">
+                  Sin pago recibido: la venta quedará pendiente de cobro.
+                </p>
+              ) : null}
+              {payments.map((payment, index) => (
+                <div className="grid grid-cols-[1fr_100px_auto] gap-2" key={index}>
+                  <select
+                    className="min-h-10 min-w-0 rounded-lg border bg-white p-2 text-sm"
+                    aria-label={`Cuenta del pago ${index + 1}`}
+                    value={payment.accountId}
+                    onChange={(event) =>
+                      setPayments((current) =>
+                        current.map((entry, i) =>
+                          i === index
+                            ? { ...entry, accountId: event.target.value }
+                            : entry,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">Cuenta</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="min-h-10 min-w-0 rounded-lg border bg-white p-2 text-sm"
+                    aria-label={`Valor del pago ${index + 1}`}
+                    type="number"
+                    min="1"
+                    value={payment.amountMinor || ""}
+                    onChange={(event) =>
+                      setPayments((current) =>
+                        current.map((entry, i) =>
+                          i === index
+                            ? { ...entry, amountMinor: Number(event.target.value) }
+                            : entry,
+                        ),
+                      )
+                    }
+                  />
                   <button
                     type="button"
-                    className="text-sm text-orange-800 underline"
+                    className="px-2 text-sm text-orange-800"
                     onClick={() =>
-                      setCart((current) =>
-                        current.filter((item) => item.productId !== line.productId),
-                      )
+                      setPayments((current) => current.filter((_, i) => i !== index))
                     }
                   >
                     Quitar
                   </button>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <label>
-                    Cantidad
-                    <input
-                      className="mt-1 w-full rounded-lg border p-2"
-                      type="number"
-                      min="1"
-                      max={
-                        product.category === "Servicios" ? undefined : product.quantity
-                      }
-                      value={line.quantity}
-                      onChange={(event) =>
-                        changeLine(line.productId, {
-                          quantity: Number(event.target.value),
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Descuento COP
-                    <input
-                      className="mt-1 w-full rounded-lg border p-2"
-                      type="number"
-                      min="0"
-                      value={line.discountMinor}
-                      onChange={(event) =>
-                        changeLine(line.productId, {
-                          discountMinor: Number(event.target.value),
-                        })
-                      }
-                    />
-                  </label>
-                </div>
-                <p className="mt-2 text-right text-sm font-semibold">
-                  {formatCop(
-                    product.salePriceMinor * line.quantity - line.discountMinor,
-                  )}
-                </p>
-              </div>
-            );
-          })}
-          <div className="border-t border-orange-200 pt-3 text-sm">
-            <p className="flex justify-between">
-              <span>Total</span>
-              <strong>{formatCop(total)}</strong>
-            </p>
-            <p className="flex justify-between">
-              <span>Recibido</span>
-              <strong>{formatCop(paid)}</strong>
-            </p>
-            <p className="flex justify-between">
-              <span>Pendiente</span>
-              <strong>{formatCop(Math.max(0, total - paid))}</strong>
-            </p>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Pagos recibidos</h3>
-              <button
-                type="button"
-                className="text-sm font-semibold text-orange-800 underline"
-                onClick={() =>
-                  setPayments((current) => [
-                    ...current,
-                    { accountId: "", amountMinor: 0 },
-                  ])
+              ))}
+            </div>
+            <SubmitButton
+              disabled={
+                completed ||
+                cart.length === 0 ||
+                !Number.isSafeInteger(total) ||
+                total <= 0 ||
+                paid > total ||
+                payments.some(
+                  (payment) => !payment.accountId || payment.amountMinor <= 0,
+                )
+              }
+            />
+            {state.message ? (
+              <p
+                role="status"
+                className={
+                  state.status === "error"
+                    ? "text-sm font-semibold text-red-700"
+                    : "text-sm font-semibold text-emerald-700"
                 }
               >
-                Agregar pago
-              </button>
-            </div>
-            {payments.length === 0 ? (
-              <p className="text-xs text-zinc-600">
-                Sin pago recibido: la venta quedará pendiente de cobro.
+                {state.message}
               </p>
             ) : null}
-            {payments.map((payment, index) => (
-              <div className="grid grid-cols-[1fr_100px_auto] gap-2" key={index}>
-                <select
-                  className="min-h-10 min-w-0 rounded-lg border bg-white p-2 text-sm"
-                  aria-label={`Cuenta del pago ${index + 1}`}
-                  value={payment.accountId}
-                  onChange={(event) =>
-                    setPayments((current) =>
-                      current.map((entry, i) =>
-                        i === index
-                          ? { ...entry, accountId: event.target.value }
-                          : entry,
-                      ),
-                    )
-                  }
+            {state.saleId && completed ? (
+              <div className="space-y-2">
+                <Link
+                  className="block font-semibold text-orange-900 underline"
+                  href={`/ventas/${state.saleId}`}
                 >
-                  <option value="">Cuenta</option>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="min-h-10 min-w-0 rounded-lg border bg-white p-2 text-sm"
-                  aria-label={`Valor del pago ${index + 1}`}
-                  type="number"
-                  min="1"
-                  value={payment.amountMinor || ""}
-                  onChange={(event) =>
-                    setPayments((current) =>
-                      current.map((entry, i) =>
-                        i === index
-                          ? { ...entry, amountMinor: Number(event.target.value) }
-                          : entry,
-                      ),
-                    )
-                  }
-                />
+                  Ver comprobante interno
+                </Link>
                 <button
+                  className="min-h-10 rounded-lg border border-orange-400 px-3 text-sm font-semibold"
                   type="button"
-                  className="px-2 text-sm text-orange-800"
-                  onClick={() =>
-                    setPayments((current) => current.filter((_, i) => i !== index))
-                  }
+                  onClick={newSale}
                 >
-                  Quitar
+                  Nueva venta
                 </button>
               </div>
-            ))}
-          </div>
-          <SubmitButton
-            disabled={
-              completed ||
-              cart.length === 0 ||
-              !Number.isSafeInteger(total) ||
-              total <= 0 ||
-              paid > total ||
-              payments.some((payment) => !payment.accountId || payment.amountMinor <= 0)
-            }
-          />
-          {state.message ? (
-            <p
-              role="status"
-              className={
-                state.status === "error"
-                  ? "text-sm font-semibold text-red-700"
-                  : "text-sm font-semibold text-emerald-700"
-              }
-            >
-              {state.message}
-            </p>
-          ) : null}
-          {state.saleId && completed ? (
-            <div className="space-y-2">
-              <Link
-                className="block font-semibold text-orange-900 underline"
-                href={`/ventas/${state.saleId}`}
-              >
-                Ver comprobante interno
-              </Link>
-              <button
-                className="min-h-10 rounded-lg border border-orange-400 px-3 text-sm font-semibold"
-                type="button"
-                onClick={newSale}
-              >
-                Nueva venta
-              </button>
-            </div>
-          ) : null}
-        </form>
+            ) : null}
+          </form>
+        ) : null}
       </div>
       <section className="overflow-x-auto rounded-2xl border bg-white">
         <h2 className="p-4 text-lg font-semibold">Historial reciente</h2>

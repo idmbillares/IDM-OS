@@ -29,16 +29,25 @@ export async function createProductAction(
 ): Promise<InventoryActionState> {
   try {
     const user = await actor(form.get("unlockToken"));
-    await createProduct(user, {
-      sku: form.get("sku"),
-      name: form.get("name"),
-      description: form.get("description") || undefined,
-      category: form.get("category"),
-      unit: form.get("unit"),
-      costMinor: form.get("costMinor"),
-      salePriceMinor: form.get("salePriceMinor"),
-      minimumQuantity: form.get("minimumQuantity"),
-    });
+    await createProduct(
+      user,
+      {
+        sku: form.get("sku"),
+        name: form.get("name"),
+        description: form.get("description") || undefined,
+        brand: form.get("brand") || undefined,
+        variant: form.get("variant") || undefined,
+        subcategory: form.get("subcategory") || undefined,
+        storageLocation: form.get("storageLocation") || undefined,
+        notes: form.get("notes") || undefined,
+        category: form.get("category"),
+        unit: form.get("unit"),
+        costMinor: form.get("costMinor"),
+        salePriceMinor: form.get("salePriceMinor"),
+        minimumQuantity: form.get("minimumQuantity"),
+      },
+      form.get("photo") instanceof File ? (form.get("photo") as File) : null,
+    );
     revalidatePath("/inventario");
     revalidatePath("/inventario/carga-inicial");
     return {
@@ -55,18 +64,27 @@ export async function updateProductAction(
 ): Promise<InventoryActionState> {
   try {
     const user = await actor(form.get("unlockToken"));
-    await updateProduct(user, {
-      id: form.get("id"),
-      sku: form.get("sku"),
-      name: form.get("name"),
-      description: form.get("description") || undefined,
-      category: form.get("category"),
-      unit: form.get("unit"),
-      costMinor: form.get("costMinor"),
-      salePriceMinor: form.get("salePriceMinor"),
-      minimumQuantity: form.get("minimumQuantity"),
-      isActive: form.get("isActive") === "on",
-    });
+    await updateProduct(
+      user,
+      {
+        id: form.get("id"),
+        sku: form.get("sku"),
+        name: form.get("name"),
+        description: form.get("description") || undefined,
+        brand: form.get("brand") || undefined,
+        variant: form.get("variant") || undefined,
+        subcategory: form.get("subcategory") || undefined,
+        storageLocation: form.get("storageLocation") || undefined,
+        notes: form.get("notes") || undefined,
+        category: form.get("category"),
+        unit: form.get("unit"),
+        costMinor: form.get("costMinor"),
+        salePriceMinor: form.get("salePriceMinor"),
+        minimumQuantity: form.get("minimumQuantity"),
+        isActive: form.get("isActive") === "on",
+      },
+      form.get("photo") instanceof File ? (form.get("photo") as File) : null,
+    );
     revalidatePath("/inventario");
     return { status: "success", message: "Producto actualizado." };
   } catch (e) {

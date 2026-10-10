@@ -15,12 +15,16 @@ export function ReceiptActions({
   pendingMinor,
   accounts,
   collectionKey,
+  canCollect,
+  canVoid,
 }: {
   saleId: string;
   status: string;
   pendingMinor: number;
   accounts: Array<{ id: string; name: string }>;
   collectionKey: string;
+  canCollect: boolean;
+  canVoid: boolean;
 }) {
   const [state, action, pending] = useActionState(voidSaleAction, idle);
   const [collectionState, collectionAction, collectionPending] = useActionState(
@@ -36,7 +40,7 @@ export function ReceiptActions({
       >
         Imprimir o guardar PDF
       </button>
-      {status === "POSTED" && pendingMinor > 0 ? (
+      {canCollect && status === "POSTED" && pendingMinor > 0 ? (
         <form
           action={collectionAction}
           className="space-y-3 rounded-2xl border border-orange-200 bg-orange-50 p-4"
@@ -104,7 +108,7 @@ export function ReceiptActions({
           ) : null}
         </form>
       ) : null}
-      {status === "POSTED" ? (
+      {canVoid && status === "POSTED" ? (
         <form
           action={action}
           className="space-y-3 rounded-2xl border border-red-200 bg-red-50 p-4"

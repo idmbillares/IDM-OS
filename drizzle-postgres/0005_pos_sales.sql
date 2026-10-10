@@ -25,12 +25,12 @@ CREATE TABLE pos_sale_items (
   sku_snapshot text NOT NULL,
   name_snapshot text NOT NULL,
   unit_snapshot text NOT NULL,
-  quantity bigint NOT NULL CHECK (quantity > 0),
+  quantity numeric(18,3) NOT NULL CHECK (quantity > 0 AND (unit_snapshot IN ('metro','kilogramo') OR quantity = trunc(quantity))),
   unit_price_minor bigint NOT NULL CHECK (unit_price_minor >= 0),
   discount_minor bigint NOT NULL CHECK (discount_minor >= 0),
   line_total_minor bigint NOT NULL CHECK (line_total_minor >= 0),
   unit_cost_minor bigint NOT NULL CHECK (unit_cost_minor >= 0),
-  CHECK (line_total_minor::numeric = unit_price_minor::numeric * quantity::numeric - discount_minor::numeric),
+  CHECK (line_total_minor::numeric = round(unit_price_minor::numeric * quantity,0) - discount_minor::numeric),
   UNIQUE (sale_id,product_id)
 );
 CREATE INDEX pos_sale_items_product_idx ON pos_sale_items(product_id,sale_id);

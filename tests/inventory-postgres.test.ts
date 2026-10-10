@@ -29,10 +29,16 @@ test(
         readFileSync("drizzle-postgres/0002_inventory_kardex.sql", "utf8"),
       );
       await admin.query(
+        readFileSync("drizzle-postgres/0003_cash_integrity_branding.sql", "utf8"),
+      );
+      await admin.query(
         readFileSync("drizzle-postgres/0004_inventory_movement_guard.sql", "utf8"),
       );
       await admin.query(
         readFileSync("drizzle-postgres/0006_inventory_opening_batches.sql", "utf8"),
+      );
+      await admin.query(
+        readFileSync("drizzle-postgres/0007_inventory_catalog_fractional.sql", "utf8"),
       );
       isolated = new Pool({
         ...postgresConfig("POSTGRES_RUNTIME_URL"),
@@ -147,6 +153,78 @@ test(
           .count,
         "0",
       );
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=",
+        "base64",
+      );
+      const measuredId = await inventory.createProduct(
+        actor,
+        {
+          sku: "METRO-TEST",
+          name: "Tela medida",
+          category: "Materias primas",
+          unit: "metro",
+          brand: "IDM",
+          variant: "Azul",
+          subcategory: "Tapetes",
+          storageLocation: "Bodega A",
+          notes: "Prueba aislada",
+          costMinor: 1000,
+          salePriceMinor: 2000,
+          minimumQuantity: 0.125,
+        },
+        new File([png], "foto.png", { type: "image/png" }),
+      );
+      const measured = (await inventory.listInventory()).find(
+        (p) => p.id === measuredId,
+      );
+      assert.equal(measured?.brand, "IDM");
+      assert.ok(measured?.photoId);
+      assert.equal(
+        (
+          await isolated.query(
+            "SELECT octet_length(content) AS size FROM inventory_product_photos WHERE id=$1",
+            [measured?.photoId],
+          )
+        ).rows[0].size,
+        png.length,
+      );
+      await assert.rejects(
+        isolated.query("UPDATE inventory_product_photos SET width=width WHERE id=$1", [
+          measured?.photoId,
+        ]),
+        /immutable/,
+      );
+      await inventory.registerOpeningInventory(actor, {
+        productId: measuredId,
+        quantity: 1.25,
+        unitCostMinor: 1000,
+        reason: "Apertura medida",
+        idempotencyKey: randomUUID(),
+      });
+      await inventory.registerInventoryMovement(actor, {
+        kind: "EXIT",
+        productId: measuredId,
+        quantity: 0.125,
+        reason: "Consumo medido",
+        idempotencyKey: randomUUID(),
+      });
+      assert.equal(
+        (await inventory.listInventory()).find((p) => p.id === measuredId)?.quantity,
+        1.125,
+      );
+      await assert.rejects(
+        () =>
+          inventory.registerInventoryMovement(actor, {
+            kind: "ENTRY",
+            productId,
+            quantity: 0.5,
+            unitCostMinor: 1000,
+            reason: "Unidad indivisible",
+            idempotencyKey: randomUUID(),
+          }),
+        /enteras/,
+      );
       const legacyId = randomUUID();
       await isolated.query(
         "INSERT INTO inventory_products(id,sku,name,category,unit,cost_minor,sale_price_minor,minimum_quantity,created_at,updated_at,created_by_user_id,updated_by_user_id) VALUES($1,'LEGACY-1','Producto heredado','Articulo','Unidad',0,0,0,now(),now(),$2,$2)",
@@ -211,7 +289,7 @@ test(
       assert.equal(
         (await isolated.query("SELECT count(*) FROM inventory_movements")).rows[0]
           .count,
-        "6",
+        "8",
       );
       assert.equal(
         (await isolated.query("SELECT count(*) FROM financial_transactions")).rows[0]

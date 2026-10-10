@@ -5,6 +5,15 @@ import { pool } from "@/db/client";
 import { AuthorizationError, ValidationError } from "@/lib/errors";
 import { businessDayBounds } from "@/lib/business-time";
 import { z } from "zod";
+import type { PoolClient } from "pg";
+import { readProductPhoto } from "@/modules/inventory/photo";
+import {
+  ensureUnitQuantity,
+  milliunits,
+  nonnegativeQuantity,
+  positiveQuantity,
+  quantityFromDatabase,
+} from "@/modules/inventory/quantity";
 
 type Actor = { id: string };
 const integerInput = (value: unknown) =>
@@ -12,7 +21,6 @@ const integerInput = (value: unknown) =>
     ? Number(value.trim())
     : value;
 const nonnegative = z.preprocess(integerInput, z.number().int().safe().nonnegative());
-const positive = z.preprocess(integerInput, z.number().int().safe().positive());
 async function authorizeAdministrator(
   client: { query: typeof pool.query },
   actor: Actor,
@@ -29,6 +37,40 @@ function safeInteger(value: string | number) {
     throw new ValidationError("La cantidad excede el rango seguro.");
   return parsed;
 }
+async function attachPhoto(
+  client: PoolClient,
+  productId: string,
+  actorId: string,
+  photo: Awaited<ReturnType<typeof readProductPhoto>>,
+  now: Date,
+) {
+  if (!photo) return;
+  const existing = (
+    await client.query<{ id: string }>(
+      "SELECT id FROM inventory_product_photos WHERE product_id=$1 AND sha256=$2",
+      [productId, photo.sha256],
+    )
+  ).rows[0];
+  const id = existing?.id ?? randomUUID();
+  if (!existing)
+    await client.query(
+      "INSERT INTO inventory_product_photos(id,product_id,mime_type,content,sha256,width,height,created_at,created_by_user_id) VALUES($1,$2,'image/png',$3,$4,$5,$6,$7,$8)",
+      [
+        id,
+        productId,
+        photo.bytes,
+        photo.sha256,
+        photo.width,
+        photo.height,
+        now,
+        actorId,
+      ],
+    );
+  await client.query("UPDATE inventory_products SET photo_id=$1 WHERE id=$2", [
+    id,
+    productId,
+  ]);
+}
 const productSchema = z.object({
   sku: z.union([
     z.literal(""),
@@ -41,6 +83,11 @@ const productSchema = z.object({
   ]),
   name: z.string().trim().min(2).max(160),
   description: z.string().trim().max(1000).optional(),
+  brand: z.string().trim().max(120).optional(),
+  variant: z.string().trim().max(120).optional(),
+  subcategory: z.string().trim().max(120).optional(),
+  storageLocation: z.string().trim().max(160).optional(),
+  notes: z.string().trim().max(1000).optional(),
   category: z.enum([
     "Mercancía y accesorios",
     "Materias primas",
@@ -50,11 +97,11 @@ const productSchema = z.object({
   unit: z.enum(["unidad", "juego", "par", "metro", "kilogramo", "rollo", "caja"]),
   costMinor: nonnegative,
   salePriceMinor: nonnegative,
-  minimumQuantity: nonnegative,
+  minimumQuantity: nonnegativeQuantity,
 });
 const openingSchema = z.object({
   productId: z.string().uuid(),
-  quantity: positive,
+  quantity: positiveQuantity,
   unitCostMinor: nonnegative,
   reference: z.string().trim().max(120).optional(),
   reason: z.string().trim().min(3).max(500),
@@ -67,8 +114,8 @@ const operationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ADJUSTMENT"),
     productId: z.string().uuid(),
-    expectedQuantity: nonnegative,
-    physicalQuantity: nonnegative,
+    expectedQuantity: nonnegativeQuantity,
+    physicalQuantity: nonnegativeQuantity,
     reason: z.string().trim().min(3).max(500),
     reference: z.string().trim().max(120).optional(),
     idempotencyKey: z.string().uuid(),
@@ -81,8 +128,10 @@ function parse<T>(result: z.ZodSafeParseResult<T>) {
     );
   return result.data;
 }
-export async function createProduct(actor: Actor, raw: unknown) {
+export async function createProduct(actor: Actor, raw: unknown, file?: File | null) {
   const item = parse(productSchema.safeParse(raw));
+  ensureUnitQuantity(item.unit, item.minimumQuantity);
+  const photo = await readProductPhoto(file);
   const now = new Date();
   const id = randomUUID();
   const client = await pool.connect();
@@ -90,7 +139,7 @@ export async function createProduct(actor: Actor, raw: unknown) {
     await client.query("BEGIN");
     await authorizeAdministrator(client, actor);
     await client.query(
-      "INSERT INTO inventory_products(id,sku,name,description,category,unit,cost_minor,sale_price_minor,minimum_quantity,created_at,updated_at,created_by_user_id,updated_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$11)",
+      "INSERT INTO inventory_products(id,sku,name,description,category,unit,cost_minor,sale_price_minor,minimum_quantity,created_at,updated_at,created_by_user_id,updated_by_user_id,brand,variant,subcategory,storage_location,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$11,$12,$13,$14,$15,$16)",
       [
         id,
         item.sku
@@ -105,8 +154,14 @@ export async function createProduct(actor: Actor, raw: unknown) {
         item.minimumQuantity,
         now,
         actor.id,
+        item.brand || null,
+        item.variant || null,
+        item.subcategory || null,
+        item.storageLocation || null,
+        item.notes || null,
       ],
     );
+    await attachPhoto(client, id, actor.id, photo, now);
     await client.query(
       "INSERT INTO audit_logs(id,actor_user_id,action,entity_type,entity_id,after_json,occurred_at,created_at) VALUES($1,$2,'inventory.product_created','inventory_product',$3,$4,$5,$5)",
       [randomUUID(), actor.id, id, JSON.stringify(item), now],
@@ -122,7 +177,7 @@ export async function createProduct(actor: Actor, raw: unknown) {
     client.release();
   }
 }
-export async function updateProduct(actor: Actor, raw: unknown) {
+export async function updateProduct(actor: Actor, raw: unknown, file?: File | null) {
   const item = parse(
     productSchema
       .extend({
@@ -133,6 +188,8 @@ export async function updateProduct(actor: Actor, raw: unknown) {
       })
       .safeParse(raw),
   );
+  const photo = await readProductPhoto(file);
+  ensureUnitQuantity(item.unit, item.minimumQuantity);
   if (!item.sku) throw new ValidationError("El SKU existente no puede quedar vacío.");
   const client = await pool.connect();
   try {
@@ -150,8 +207,13 @@ export async function updateProduct(actor: Actor, raw: unknown) {
         sale_price_minor: string;
         minimum_quantity: string;
         is_active: boolean;
+        brand: string | null;
+        variant: string | null;
+        subcategory: string | null;
+        storage_location: string | null;
+        notes: string | null;
       }>(
-        "SELECT id,sku,name,description,category,unit,cost_minor::text,sale_price_minor::text,minimum_quantity::text,is_active FROM inventory_products WHERE id=$1 FOR UPDATE",
+        "SELECT id,sku,name,description,category,unit,cost_minor::text,sale_price_minor::text,minimum_quantity::text,is_active,brand,variant,subcategory,storage_location,notes FROM inventory_products WHERE id=$1 FOR UPDATE",
         [item.id],
       )
     ).rows[0];
@@ -180,7 +242,7 @@ export async function updateProduct(actor: Actor, raw: unknown) {
       );
     const now = new Date();
     await client.query(
-      "UPDATE inventory_products SET sku=$1,name=$2,description=$3,category=$4,unit=$5,cost_minor=$6,sale_price_minor=$7,minimum_quantity=$8,is_active=$9,updated_at=$10,updated_by_user_id=$11 WHERE id=$12",
+      "UPDATE inventory_products SET sku=$1,name=$2,description=$3,category=$4,unit=$5,cost_minor=$6,sale_price_minor=$7,minimum_quantity=$8,is_active=$9,updated_at=$10,updated_by_user_id=$11,brand=$13,variant=$14,subcategory=$15,storage_location=$16,notes=$17 WHERE id=$12",
       [
         item.sku.toUpperCase(),
         item.name,
@@ -194,8 +256,14 @@ export async function updateProduct(actor: Actor, raw: unknown) {
         now,
         actor.id,
         item.id,
+        item.brand || null,
+        item.variant || null,
+        item.subcategory || null,
+        item.storageLocation || null,
+        item.notes || null,
       ],
     );
+    await attachPhoto(client, item.id, actor.id, photo, now);
     await client.query(
       "INSERT INTO audit_logs(id,actor_user_id,action,entity_type,entity_id,before_json,after_json,occurred_at,created_at) VALUES($1,$2,'inventory.product_updated','inventory_product',$3,$4,$5,$6,$6)",
       [
@@ -250,15 +318,23 @@ export async function registerInventoryMovement(actor: Actor, raw: unknown) {
       return existing.id;
     }
     const product = (
-      await client.query<{ id: string; category: string; cost_minor: string }>(
-        "SELECT id,category,cost_minor::text FROM inventory_products WHERE id=$1 AND is_active=true FOR UPDATE",
+      await client.query<{
+        id: string;
+        category: string;
+        unit: string;
+        cost_minor: string;
+      }>(
+        "SELECT id,category,unit,cost_minor::text FROM inventory_products WHERE id=$1 AND is_active=true FOR UPDATE",
         [item.productId],
       )
     ).rows[0];
     if (!product) throw new ValidationError("El producto no existe o está inactivo.");
     if (product.category === "Servicios")
       throw new ValidationError("Los servicios no tienen existencias propias.");
-    const previous = safeInteger(
+    if (item.kind === "ADJUSTMENT")
+      ensureUnitQuantity(product.unit, item.physicalQuantity);
+    else ensureUnitQuantity(product.unit, item.quantity);
+    const previous = quantityFromDatabase(
       (
         await client.query<{ stock: string }>(
           "SELECT coalesce(sum(quantity),0)::text stock FROM inventory_movements WHERE product_id=$1",
@@ -278,18 +354,23 @@ export async function registerInventoryMovement(actor: Actor, raw: unknown) {
       throw new ValidationError(
         "El saldo de apertura solo se registra antes del primer movimiento.",
       );
-    if (item.kind === "ADJUSTMENT" && previous !== item.expectedQuantity)
+    if (
+      item.kind === "ADJUSTMENT" &&
+      milliunits(previous) !== milliunits(item.expectedQuantity)
+    )
       throw new ValidationError(
         "La existencia cambió desde el conteo. Actualiza la página.",
       );
-    const delta =
+    const deltaMilli =
       item.kind === "ADJUSTMENT"
-        ? item.physicalQuantity - previous
+        ? milliunits(item.physicalQuantity) - milliunits(previous)
         : item.kind === "EXIT"
-          ? -item.quantity
-          : item.quantity;
-    const next = previous + delta;
-    if (!Number.isSafeInteger(next) || next < 0)
+          ? -milliunits(item.quantity)
+          : milliunits(item.quantity);
+    const nextMilli = milliunits(previous) + deltaMilli;
+    const delta = deltaMilli / 1000;
+    const next = nextMilli / 1000;
+    if (!Number.isSafeInteger(nextMilli) || nextMilli < 0)
       throw new ValidationError(
         "La operación dejaría existencias negativas o fuera del rango seguro.",
       );
@@ -388,6 +469,12 @@ export async function listInventory(
       sku: string;
       name: string;
       description: string | null;
+      brand: string | null;
+      variant: string | null;
+      subcategory: string | null;
+      storageLocation: string | null;
+      notes: string | null;
+      photoId: string | null;
       category: string;
       unit: string;
       costMinor: string;
@@ -396,15 +483,15 @@ export async function listInventory(
       isActive: boolean;
       quantity: string;
     }>(
-      `SELECT p.id,p.sku,p.name,p.description,p.category,p.unit,p.cost_minor::text "costMinor",p.sale_price_minor::text "salePriceMinor",p.minimum_quantity::text "minimumQuantity",p.is_active "isActive",coalesce(sum(m.quantity),0)::text quantity FROM inventory_products p LEFT JOIN inventory_movements m ON m.product_id=p.id ${where} GROUP BY p.id ORDER BY p.name`,
+      `SELECT p.id,p.sku,p.name,p.description,p.brand,p.variant,p.subcategory,p.storage_location "storageLocation",p.notes,p.photo_id "photoId",p.category,p.unit,p.cost_minor::text "costMinor",p.sale_price_minor::text "salePriceMinor",p.minimum_quantity::text "minimumQuantity",p.is_active "isActive",coalesce(sum(m.quantity),0)::text quantity FROM inventory_products p LEFT JOIN inventory_movements m ON m.product_id=p.id ${where} GROUP BY p.id ORDER BY p.name`,
       values,
     )
   ).rows.map((x) => ({
     ...x,
     costMinor: safeInteger(x.costMinor),
     salePriceMinor: safeInteger(x.salePriceMinor),
-    minimumQuantity: safeInteger(x.minimumQuantity),
-    quantity: safeInteger(x.quantity),
+    minimumQuantity: quantityFromDatabase(x.minimumQuantity),
+    quantity: quantityFromDatabase(x.quantity),
   }));
 }
 export async function listInventoryMovements(
@@ -489,9 +576,9 @@ export async function listInventoryMovements(
     )
   ).rows.map((row) => ({
     ...row,
-    quantity: safeInteger(row.quantity),
-    previousQuantity: safeInteger(row.previousQuantity),
-    nextQuantity: safeInteger(row.nextQuantity),
+    quantity: quantityFromDatabase(row.quantity),
+    previousQuantity: quantityFromDatabase(row.previousQuantity),
+    nextQuantity: quantityFromDatabase(row.nextQuantity),
   }));
 }
 export async function inventoryActors() {

@@ -1,6 +1,7 @@
 "use client";
 import { useActionState, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { PackagePlus, Search, Upload } from "lucide-react";
 import {
   createProductAction,
@@ -16,6 +17,12 @@ type Product = {
   sku: string;
   name: string;
   description: string | null;
+  brand: string | null;
+  variant: string | null;
+  subcategory: string | null;
+  storageLocation: string | null;
+  notes: string | null;
+  photoId: string | null;
   category: string;
   unit: string;
   costMinor: number | null;
@@ -168,6 +175,11 @@ export function InventoryPanel({
             label="Código / SKU (opcional, se genera automáticamente)"
           />
           <Input name="name" label="Producto" />
+          <Input name="brand" label="Marca (opcional)" />
+          <Input name="variant" label="Variante (opcional)" />
+          <Input name="subcategory" label="Subcategoría (opcional)" />
+          <Input name="storageLocation" label="Ubicación (opcional)" />
+          <Input name="notes" label="Observaciones (opcional)" />
           <label className="text-sm font-semibold">
             Categoría
             <select
@@ -205,6 +217,15 @@ export function InventoryPanel({
             <textarea
               className="mt-1 block w-full rounded-lg border p-2"
               name="description"
+            />
+          </label>
+          <label className="text-sm font-semibold sm:col-span-2">
+            Fotografía PNG (máximo 2 MB)
+            <input
+              className="mt-1 block w-full"
+              type="file"
+              name="photo"
+              accept="image/png"
             />
           </label>
           <button
@@ -245,6 +266,24 @@ export function InventoryPanel({
               required
             />
           </label>
+          {(
+            [
+              ["brand", "Marca", editingProduct.brand],
+              ["variant", "Variante", editingProduct.variant],
+              ["subcategory", "Subcategoría", editingProduct.subcategory],
+              ["storageLocation", "Ubicación", editingProduct.storageLocation],
+              ["notes", "Observaciones", editingProduct.notes],
+            ] as const
+          ).map(([name, label, value]) => (
+            <label className="text-sm font-semibold" key={name}>
+              {label}
+              <input
+                className="mt-1 block min-h-11 w-full rounded-lg border p-2"
+                name={name}
+                defaultValue={value ?? ""}
+              />
+            </label>
+          ))}
           <label className="text-sm font-semibold">
             Categoría
             <select
@@ -313,8 +352,22 @@ export function InventoryPanel({
               name="minimumQuantity"
               type="number"
               min="0"
+              step={
+                editingProduct.unit === "metro" || editingProduct.unit === "kilogramo"
+                  ? "0.001"
+                  : "1"
+              }
               defaultValue={editingProduct.minimumQuantity}
               required
+            />
+          </label>
+          <label className="text-sm font-semibold sm:col-span-2">
+            Nueva fotografía PNG (opcional)
+            <input
+              className="mt-1 block w-full"
+              type="file"
+              name="photo"
+              accept="image/png"
             />
           </label>
           <label className="flex items-center gap-2 text-sm font-semibold">
@@ -539,7 +592,24 @@ export function InventoryPanel({
                     : "Disponible";
               return (
                 <tr className="border-t" key={p.id}>
-                  <td className="p-3 font-semibold">{p.name}</td>
+                  <td className="p-3 font-semibold">
+                    {p.photoId ? (
+                      <Image
+                        src={`/api/inventario/fotos/${p.photoId}`}
+                        alt=""
+                        width={48}
+                        height={48}
+                        unoptimized
+                        className="mb-1 h-12 w-12 rounded object-cover"
+                      />
+                    ) : null}
+                    {p.name}
+                    {p.brand || p.variant ? (
+                      <span className="block text-xs text-zinc-600">
+                        {[p.brand, p.variant].filter(Boolean).join(" · ")}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="p-3 text-xs text-zinc-600">{p.sku}</td>
                   <td className="p-3">{p.category}</td>
                   <td className="p-3">
@@ -549,17 +619,6 @@ export function InventoryPanel({
                     </span>
                   </td>
                   <td className="p-3">{p.unit}</td>
-                  {isAdministrator ? (
-                    <td className="p-3">
-                      <button
-                        className="font-semibold text-orange-800 underline"
-                        type="button"
-                        onClick={() => setEditingProductId(p.id)}
-                      >
-                        Editar
-                      </button>
-                    </td>
-                  ) : null}
                   <td className="p-3">{formatCop(p.salePriceMinor)}</td>
                   {canViewCost ? (
                     <td className="p-3">
@@ -577,6 +636,17 @@ export function InventoryPanel({
                       {state}
                     </span>
                   </td>
+                  {isAdministrator ? (
+                    <td className="p-3">
+                      <button
+                        className="font-semibold text-orange-800 underline"
+                        type="button"
+                        onClick={() => setEditingProductId(p.id)}
+                      >
+                        Editar
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}
@@ -755,9 +825,26 @@ function Input({
       <input
         className="mt-1 block min-h-11 w-full rounded-lg border p-2"
         min={type === "number" ? 0 : undefined}
+        step={
+          type === "number"
+            ? ["quantity", "physicalQuantity", "minimumQuantity"].includes(name)
+              ? "0.001"
+              : "1"
+            : undefined
+        }
         name={name}
         placeholder={placeholder}
-        required={name !== "reference" && name !== "sku"}
+        required={
+          ![
+            "reference",
+            "sku",
+            "brand",
+            "variant",
+            "subcategory",
+            "storageLocation",
+            "notes",
+          ].includes(name)
+        }
         type={type}
       />
     </label>

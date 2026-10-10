@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { ReceiptActions } from "@/components/pos/receipt-actions";
-import { requireRole } from "@/modules/auth/contracts";
+import { requireSession } from "@/modules/auth/contracts";
 import { getAuthProvider } from "@/modules/auth/provider";
 import { formatCop } from "@/modules/financial/money";
 import { getSale, listPosAccounts, posSchemaReady } from "@/modules/pos/service";
 import { randomUUID } from "node:crypto";
+import { assertPosView, canOperatePos } from "@/modules/pos/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,8 @@ export default async function ReceiptPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireRole(getAuthProvider(), "ADMINISTRADOR");
+  const session = await requireSession(getAuthProvider());
+  assertPosView(session);
   if (!(await posSchemaReady()))
     return (
       <div className="space-y-6">
@@ -124,6 +126,8 @@ export default async function ReceiptPage({
         ) : null}
       </section>
       <ReceiptActions
+        canCollect={canOperatePos(session)}
+        canVoid={session.roles.includes("ADMINISTRADOR")}
         saleId={sale.id}
         status={sale.status}
         pendingMinor={sale.totalMinor - received}

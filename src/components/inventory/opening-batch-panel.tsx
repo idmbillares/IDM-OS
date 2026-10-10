@@ -287,7 +287,8 @@ export function OpeningBatchPanel({
                       className="min-h-10 w-full rounded-lg border p-2"
                       aria-label={`Cantidad fila ${index + 1}`}
                       type="number"
-                      min="1"
+                      min="0.001"
+                      step="0.001"
                       value={row.quantity}
                       onChange={(event) =>
                         update(index, { quantity: event.target.value })

@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/modules/auth/contracts";
+import { requireRole, requireSession } from "@/modules/auth/contracts";
+import { assertPosOperation } from "@/modules/pos/permissions";
 import { getAuthProvider } from "@/modules/auth/provider";
 import { requireUnlockedSession } from "@/modules/auth/app-security";
 import { collectSalePayment, createSale, voidSale } from "@/modules/pos/service";
@@ -27,7 +28,8 @@ export async function createSaleAction(
   form: FormData,
 ): Promise<SaleActionState> {
   try {
-    const actor = await requireRole(getAuthProvider(), "ADMINISTRADOR");
+    const actor = await requireSession(getAuthProvider());
+    assertPosOperation(actor);
     await requireUnlockedSession(actor, form.get("unlockToken"));
     const saleData = JSON.parse(String(form.get("saleData") ?? "")) as unknown;
     const idempotencyKey = String(form.get("idempotencyKey") ?? "");
@@ -76,7 +78,8 @@ export async function collectSalePaymentAction(
   form: FormData,
 ): Promise<SaleActionState> {
   try {
-    const actor = await requireRole(getAuthProvider(), "ADMINISTRADOR");
+    const actor = await requireSession(getAuthProvider());
+    assertPosOperation(actor);
     await requireUnlockedSession(actor, form.get("unlockToken"));
     const saleId = await collectSalePayment(actor, {
       saleId: form.get("saleId"),

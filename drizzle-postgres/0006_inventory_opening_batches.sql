@@ -17,7 +17,7 @@ CREATE TABLE inventory_opening_batch_items (
   id text PRIMARY KEY,
   batch_id text NOT NULL REFERENCES inventory_opening_batches(id) ON DELETE RESTRICT,
   product_id text NOT NULL REFERENCES inventory_products(id) ON DELETE RESTRICT,
-  quantity bigint NOT NULL CHECK (quantity > 0),
+  quantity numeric(18,3) NOT NULL CHECK (quantity > 0),
   unit_cost_minor bigint NOT NULL CHECK (unit_cost_minor >= 0),
   sale_price_minor bigint NOT NULL CHECK (sale_price_minor >= 0),
   UNIQUE (batch_id,product_id)

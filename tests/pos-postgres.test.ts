@@ -28,6 +28,8 @@ test(
         "0003_cash_integrity_branding.sql",
         "0004_inventory_movement_guard.sql",
         "0005_pos_sales.sql",
+        "0006_inventory_opening_batches.sql",
+        "0007_inventory_catalog_fractional.sql",
       ]) {
         await admin.query(
           readFileSync(`drizzle-postgres/${name}`, "utf8").replaceAll(
@@ -230,6 +232,77 @@ test(
       assert.equal(
         await pos.voidSale(actor, { saleId: firstId, reason: "Anulación aislada" }),
         firstId,
+      );
+      const secretaryRole = randomUUID();
+      await isolated.query(
+        "INSERT INTO roles(id,key,display_name,description,created_at,updated_at) VALUES($1,'CAJA_SECRETARIA','Secretaria','Test',now(),now())",
+        [secretaryRole],
+      );
+      await isolated.query(
+        "INSERT INTO user_roles(user_id,role_id,assigned_at) VALUES($1,$2,now())",
+        [other.id, secretaryRole],
+      );
+      const measuredId = await inventory.createProduct(actor, {
+        sku: "POS-METRO",
+        name: "Tela medida",
+        category: "Materias primas",
+        unit: "metro",
+        costMinor: 1000,
+        salePriceMinor: 2000,
+        minimumQuantity: 0,
+      });
+      await inventory.registerOpeningInventory(actor, {
+        productId: measuredId,
+        quantity: 2,
+        unitCostMinor: 1000,
+        reason: "Apertura medida",
+        idempotencyKey: randomUUID(),
+      });
+      const measuredSale = await pos.createSale(other, {
+        idempotencyKey: randomUUID(),
+        items: [
+          {
+            productId: measuredId,
+            quantity: 0.125,
+            expectedPriceMinor: 2000,
+            discountMinor: 0,
+          },
+        ],
+        payments: [],
+      });
+      assert.equal((await pos.getSale(measuredSale)).totalMinor, 250);
+      assert.equal(
+        (await inventory.listInventory()).find((p) => p.id === measuredId)?.quantity,
+        1.875,
+      );
+      assert.equal(
+        await pos.collectSalePayment(other, {
+          saleId: measuredSale,
+          accountId: account,
+          amountMinor: 250,
+          idempotencyKey: randomUUID(),
+        }),
+        measuredSale,
+      );
+      await assert.rejects(
+        () =>
+          pos.createSale(other, {
+            idempotencyKey: randomUUID(),
+            items: [
+              {
+                productId: measuredId,
+                quantity: 0.125,
+                expectedPriceMinor: 2000,
+                discountMinor: 1,
+              },
+            ],
+            payments: [],
+          }),
+        /permiso|autorización|autorizado/i,
+      );
+      await assert.rejects(
+        () => pos.voidSale(other, { saleId: measuredSale, reason: "No autorizado" }),
+        /permiso|autorización|autorizado/i,
       );
     } finally {
       await isolated?.end();

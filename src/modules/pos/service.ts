@@ -5,6 +5,13 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { pool } from "@/db/client";
 import { AuthorizationError, ValidationError } from "@/lib/errors";
+import {
+  ensureUnitQuantity,
+  milliunits,
+  moneyForQuantity,
+  positiveQuantity,
+  quantityFromDatabase,
+} from "@/modules/inventory/quantity";
 
 type Actor = { id: string };
 const numeric = (value: unknown) =>
@@ -20,7 +27,7 @@ const saleSchema = z.object({
     .array(
       z.object({
         productId: z.string().uuid(),
-        quantity: positive,
+        quantity: positiveQuantity,
         expectedPriceMinor: nonnegative,
         discountMinor: nonnegative,
       }),
@@ -52,15 +59,15 @@ function safe(value: string | number) {
     throw new ValidationError("El importe excede el rango seguro.");
   return amount;
 }
-async function administrator(c: PoolClient, actor: Actor) {
+async function authorize(c: PoolClient, actor: Actor, includeSecretary = false) {
   const result = await c.query(
-    "SELECT 1 FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.id=$1 AND u.is_active AND r.key='ADMINISTRADOR'",
-    [actor.id],
+    "SELECT 1 FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.id=$1 AND u.is_active AND (r.key='ADMINISTRADOR' OR ($2 AND r.key='CAJA_SECRETARIA'))",
+    [actor.id, includeSecretary],
   );
   if (!result.rowCount) throw new AuthorizationError();
 }
 async function stock(c: PoolClient, productId: string) {
-  return safe(
+  return quantityFromDatabase(
     (
       await c.query<{ quantity: string }>(
         "SELECT coalesce(sum(quantity),0)::text quantity FROM inventory_movements WHERE product_id=$1",
@@ -83,7 +90,8 @@ export async function createSale(actor: Actor, raw: unknown) {
   const c = await pool.connect();
   try {
     await c.query("BEGIN");
-    await administrator(c, actor);
+    await authorize(c, actor, true);
+    if (item.items.some((line) => line.discountMinor > 0)) await authorize(c, actor);
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
       `pos:${item.idempotencyKey}`,
     ]);
@@ -135,6 +143,10 @@ export async function createSale(actor: Actor, raw: unknown) {
         )
       ).rows[0];
       if (!p) throw new ValidationError("Un producto ya no existe o está inactivo.");
+      ensureUnitQuantity(
+        p.unit,
+        item.items.find((line) => line.productId === productId)!.quantity,
+      );
       products.set(productId, {
         ...p,
         cost: safe(p.cost),
@@ -150,7 +162,7 @@ export async function createSale(actor: Actor, raw: unknown) {
         );
       if (p.category !== "Servicios" && line.quantity > p.available)
         throw new ValidationError(`Existencia insuficiente para ${p.name}.`);
-      const gross = safe(p.price * line.quantity);
+      const gross = moneyForQuantity(p.price, line.quantity);
       if (line.discountMinor > gross)
         throw new ValidationError(
           `El descuento de ${p.name} supera el valor de la línea.`,
@@ -214,7 +226,7 @@ export async function createSale(actor: Actor, raw: unknown) {
       );
       if (line.product.category !== "Servicios") {
         const previous = await stock(c, line.productId);
-        const next = previous - line.quantity;
+        const next = (milliunits(previous) - milliunits(line.quantity)) / 1000;
         if (next < 0)
           throw new ValidationError(
             `Existencia insuficiente para ${line.product.name}.`,
@@ -322,7 +334,7 @@ export async function voidSale(actor: Actor, raw: unknown) {
   const c = await pool.connect();
   try {
     await c.query("BEGIN");
-    await administrator(c, actor);
+    await authorize(c, actor);
     const sale = (
       await c.query<{
         id: string;
@@ -393,8 +405,8 @@ export async function voidSale(actor: Actor, raw: unknown) {
     for (const line of lines) {
       if (line.category === "Servicios") continue;
       const previous = await stock(c, line.product_id),
-        quantity = safe(line.quantity),
-        next = safe(previous + quantity);
+        quantity = quantityFromDatabase(line.quantity),
+        next = (milliunits(previous) + milliunits(quantity)) / 1000;
       await c.query(
         "INSERT INTO inventory_movements(id,product_id,type,quantity,previous_quantity,next_quantity,unit_cost_minor,reference,reason,source,idempotency_key,created_at,created_by_user_id,sale_id) VALUES($1,$2,'RETURN',$3,$4,$5,$6,$7,$8,'POS_VOID',$9,$10,$11,$12)",
         [
@@ -485,7 +497,7 @@ export async function collectSalePayment(actor: Actor, raw: unknown) {
   const c = await pool.connect();
   try {
     await c.query("BEGIN");
-    await administrator(c, actor);
+    await authorize(c, actor, true);
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
       `pos-collection:${item.idempotencyKey}`,
     ]);
@@ -661,7 +673,7 @@ export async function getSale(id: string) {
     totalMinor: safe(sale.totalMinor),
     items: items.rows.map((line) => ({
       ...line,
-      quantity: safe(line.quantity),
+      quantity: quantityFromDatabase(line.quantity),
       unitPriceMinor: safe(line.unitPriceMinor),
       discountMinor: safe(line.discountMinor),
       lineTotalMinor: safe(line.lineTotalMinor),

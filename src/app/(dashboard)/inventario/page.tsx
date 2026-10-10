@@ -3,6 +3,8 @@ import { openingBatchSchemaReady } from "@/modules/inventory/opening-batches";
 import { InventoryPanel } from "@/components/inventory/inventory-panel";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireCurrentSession } from "@/modules/auth/provider";
+import { assertCashRead } from "@/modules/financial/permissions";
+import { moneyForQuantity } from "@/modules/inventory/quantity";
 import {
   inventoryCategories,
   inventoryActors,
@@ -17,6 +19,7 @@ export default async function InventoryPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const session = await requireCurrentSession();
+  assertCashRead(session);
   const isAdministrator = session.roles.includes("ADMINISTRADOR");
   const canViewCost = isAdministrator || session.roles.includes("CONTADORA");
   const filters = await searchParams;
@@ -35,7 +38,10 @@ export default async function InventoryPage({
     (product) => product.quantity === 0 || product.costMinor > 0,
   );
   const estimatedValue = valuationComplete
-    ? physical.reduce((sum, product) => sum + product.quantity * product.costMinor, 0)
+    ? physical.reduce(
+        (sum, product) => sum + moneyForQuantity(product.costMinor, product.quantity),
+        0,
+      )
     : null;
   return (
     <div className="space-y-8">

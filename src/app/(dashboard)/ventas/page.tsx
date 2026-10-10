@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { PageHeader } from "@/components/ui/page-header";
 import { PosPanel } from "@/components/pos/pos-panel";
-import { requireRole } from "@/modules/auth/contracts";
+import { requireSession } from "@/modules/auth/contracts";
 import { getAuthProvider } from "@/modules/auth/provider";
 import { listInventory } from "@/modules/inventory/service";
 import { listPosAccounts, listSales, posSchemaReady } from "@/modules/pos/service";
+import { assertPosView, canOperatePos } from "@/modules/pos/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function SalesPage() {
-  await requireRole(getAuthProvider(), "ADMINISTRADOR");
+  const session = await requireSession(getAuthProvider());
+  assertPosView(session);
   if (!(await posSchemaReady()))
     return (
       <div className="space-y-6">
@@ -37,6 +39,8 @@ export default async function SalesPage() {
         description="Ventas internas, descuentos de inventario y pagos recibidos en Caja."
       />
       <PosPanel
+        canOperate={canOperatePos(session)}
+        allowDiscount={session.roles.includes("ADMINISTRADOR")}
         products={products.map(
           ({ id, sku, name, category, unit, salePriceMinor, quantity }) => ({
             id,
