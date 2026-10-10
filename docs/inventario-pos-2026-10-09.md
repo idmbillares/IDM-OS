@@ -1,4 +1,6 @@
-# Inventario 1.0 y Punto de Venta — entrega local, 9 de octubre de 2026
+# Inventario 1.0 y Punto de Venta — estado de implementación, 9 de octubre de 2026
+
+> Actualización: las migraciones `0004–0007` se aplicaron a Supabase después de restaurar y ensayar un respaldo reciente. La verificación posterior encontró 1 producto, 0 movimientos de Inventario, 46 transacciones y 46 movimientos de Caja; los dos saldos de Caja permanecieron en 44 200 y 510 883 COP. El despliegue de producción queda pendiente de fusionar el PR y comprobarlo con sesión de usuario.
 
 ## Auditoría y protección de datos
 
@@ -16,7 +18,7 @@
 - `/ventas`: carrito con productos y servicios, descuentos autorizados para Administrador, varios pagos COP, venta a crédito o parcial, comprobante interno imprimible e historial. Las cantidades y precios se vuelven a validar en servidor. El dinero recibido se registra en las cuentas de Caja existentes dentro de la misma transacción que la venta y los movimientos de inventario.
 - `/ventas/[id]`: comprobante, cobro posterior y anulación. La anulación agrega devoluciones de stock y transacciones financieras compensatorias; no elimina históricos. Se rechaza si Caja no tiene saldo suficiente para compensar pagos.
 - Las rutas de POS y carga por borradores comprueban si sus tablas ya existen. Antes de migrar muestran el estado pendiente en lugar de abrir formularios que fallarían contra la base antigua.
-- Las migraciones PostgreSQL nuevas `0004_inventory_movement_guard.sql`, `0005_pos_sales.sql` y `0006_inventory_opening_batches.sql` añaden guardas de continuidad de stock, ventas, pagos y borradores. Todas habilitan RLS y revocan acceso directo `anon`/`authenticated`. **No se aplicaron a producción.** La migración `0002` existente no se editó, porque ya está aplicada y tiene checksum registrado.
+- Las migraciones PostgreSQL `0004_inventory_movement_guard.sql`, `0005_pos_sales.sql`, `0006_inventory_opening_batches.sql` y `0007_inventory_catalog_fractional.sql` añaden guardas de continuidad de stock, ventas, pagos, borradores, cantidades fraccionarias y fotografías. Todas habilitan RLS y revocan acceso directo `anon`/`authenticated`. **Se aplicaron a producción después del ensayo de recuperación.** La migración `0002` existente no se editó, porque ya estaba aplicada y tenía checksum registrado.
 - Los importes COP se almacenan como enteros conforme a Caja. El costo de referencia capturado en cada movimiento y línea de venta es una instantánea histórica. Todavía no representa un método contable aprobado de valoración de inventarios ni calcula impuestos, retenciones o facturación DIAN.
 
 ## Ampliación y recuperación comprobada
@@ -45,7 +47,7 @@ El código compiló con Next.js 16; `pnpm typecheck` y `pnpm lint` pasaron. Una 
 4. Solo después de una recuperación ensayada y una ventana de despliegue, repetir la migración sobre producción y desplegar **el mismo commit**. Ejecutar verificaciones antes y después, comparar conteos y saldos, revisar logs y probar Google/PIN, alta, apertura, salida, venta, cobro, anulación y persistencia tras reinicio en el entorno desplegado con operaciones reales autorizadas. No crear datos ficticios en `public`.
 5. Si una migración falla, no sustituir ni vaciar tablas. El migrador revierte esa migración. Diagnosticar el error y usar el respaldo restaurable solo conforme al procedimiento de recuperación aprobado para producción.
 
-La organización de Supabase figura en el plan **Free** y no ofrece un backup administrado descargable. Se obtuvieron herramientas oficiales PostgreSQL 17 y se validó la recuperación del esquema de aplicación `public` desde el respaldo lógico, como se describe arriba. Las migraciones productivas siguen pendientes hasta completar controles de código, versionado y despliegue. El POS y la carga por borradores no están activos todavía.
+La organización de Supabase figura en el plan **Free** y no ofrece un backup administrado descargable. Se obtuvieron herramientas oficiales PostgreSQL 17 y se validó la recuperación del esquema de aplicación `public` desde el respaldo lógico, como se describe arriba. Las migraciones productivas se aplicaron y el código se versionó. El despliegue público aún requiere fusionar el PR y verificar la versión publicada.
 
 ## Límites funcionales antes de declarar Inventario 1.0 completo
 
