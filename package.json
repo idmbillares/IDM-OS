@@ -28,12 +28,15 @@
     "db:postgres:verify-import": "tsx scripts/verify-postgres-migration.ts",
     "db:postgres:verify-ledger": "tsx scripts/verify-postgres-ledger-rules.ts",
     "db:verify-cash": "tsx scripts/verify-cash-reconciliation.ts",
-    "test:cash:postgres": "node scripts/test-cash-postgres.mjs"
+    "db:verify-inventory-pos": "tsx scripts/verify-inventory-pos.ts",
+    "test:cash:postgres": "node scripts/test-cash-postgres.mjs",
+    "test:inventory-pos:postgres": "node scripts/test-inventory-pos-postgres.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "4.4.0",
     "lucide-react": "^1.46.0",
     "next": "16.3.5",
     "next-auth": "5.0.0-beta.32",

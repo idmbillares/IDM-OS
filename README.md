@@ -1,9 +1,14 @@
 # IDM OS
 
+> Inventario 1.0 y Punto de Venta: [auditoría, recuperación y estado de
+> despliegue](docs/inventario-pos-2026-10-09.md). Las migraciones `0004–0007` ya
+> se aplicaron tras comprobar un respaldo restaurable del esquema de aplicación
+> y conciliar Caja.
+
 Sistema operativo interno de **IDM Fábrica de Billares**. La base incluye
 autenticación Google, protección mediante PIN y el módulo inicial de Caja sobre
-PostgreSQL/Supabase. Los demás módulos continúan como placeholders hasta que su
-fase sea aprobada.
+PostgreSQL/Supabase. Inventario y Punto de Venta funcionan con la misma base;
+los módulos restantes conservan sus rutas provisionales hasta aprobar cada fase.
 
 ## Arquitectura
 
